@@ -1,0 +1,17 @@
+# US Visa Bypass Tool — Python Dependencies
+# Run: pip install -r requirements.txt
+#      playwright install chromium
+
+# ── Core browser engine ─────────────────────────────────────────
+# CloakBrowser: source-level Chromium patches (passes all bot detection)
+# GitHub: https://github.com/CloakHQ/CloakBrowser
+cloakbrowser
+
+# Playwright (required by CloakBrowser and as fallback)
+playwright>=1.40.0
+
+# ── Networking ──────────────────────────────────────────────────
+requests
+
+# ── Utilities ───────────────────────────────────────────────────
+# (all built-ins used: json, os, sys, re, time, random, threading, datetime)

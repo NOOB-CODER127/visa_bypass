@@ -1,0 +1,30 @@
+{
+    "_comment": "US Visa Bypass Tool — Config File",
+
+    "locations": ["CHE", "HYD", "KOL", "MUM", "DEL"],
+
+    "facility_id": "3f6bf614-b0db-ec11-a7b4-001dd80234f6",
+
+    "polling_interval_min": 90,
+    "polling_interval_max": 150,
+
+    "pse_max_retries": 5,
+    "calendar_timeout": 20,
+    "rate_limit_pause": 180,
+
+    "_proxy_comment_1": "⭐⭐⭐ CRITICAL: A residential proxy is REQUIRED for Cloudflare bypass.",
+    "_proxy_comment_2": "Your current IP (Kali Linux / datacenter) is likely flagged by Cloudflare.",
+    "_proxy_comment_3": "Without a proxy, Cloudflare WILL keep showing the challenge endlessly.",
+    "_proxy_comment_4": "Get a proxy from Bright Data, IPRoyal, or Smartproxy (www.highproxies.com for US-specific).",
+    "_proxy_comment_5": "Format: http://user:pass@host:port  OR  socks5://user:pass@host:port",
+    "_proxy_comment_6": "Use a US-based residential IP that matches a real ISP (not a datacenter).",
+    "proxy": "",
+
+    "_telegram_comment": "Optional — leave blank to disable Telegram alerts",
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+
+    "sound_alerts": true,
+    "headless": false,
+    "max_crash_restarts": 10
+}
