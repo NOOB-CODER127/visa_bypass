@@ -1,0 +1,51 @@
+# ══════════════════════════════════════════════════════════════════
+#  Render Blueprint — VISA BYPASS License Server
+# ══════════════════════════════════════════════════════════════════
+#  Deploy: push to GitHub/GitLab, connect repo on render.com
+#
+#  Required env vars:
+#    ADMIN_PASSWORD   — Set a strong password for the admin panel
+#
+#  Optional:
+#    LICENSE_DATA_DIR — Path to store licenses.json (default: /data)
+#    PORT             — Render sets this automatically
+# ══════════════════════════════════════════════════════════════════
+
+services:
+  - type: web
+    name: visa-bypass-license-server
+    runtime: node
+    repo: https://github.com/surya/visa_bypass
+    branch: main
+    plan: free
+
+    # Build & start commands
+    buildCommand: npm install
+    startCommand: node server/index.js
+    healthCheckPath: /health
+
+    # Working directory
+    rootDir: server
+
+    # Environment variables
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false  # Set this manually in Render dashboard
+      - key: LICENSE_DATA_DIR
+        value: /data
+      - key: NODE_ENV
+        value: production
+
+    # ── Persistent Disk ────────────────────────────────────────────
+    # Render's filesystem is ephemeral — without a disk, licenses
+    # will be lost on every deploy. Attach a disk for production.
+    #
+    # Free tier:  1 GB SSD included with each service
+    # Paid plans: Upgrade for larger disks ($7/mo+)
+    #
+    # Uncomment the disk section below after deploying:
+    #
+    # disk:
+    #   name: license-data
+    #   mountPath: /data
+    #   sizeGB: 1

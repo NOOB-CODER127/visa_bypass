@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visa Bypass — License Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* Login Screen */
+    #loginScreen {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .login-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 40px;
+      width: 360px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+    .login-card h1 {
+      font-size: 22px;
+      margin-bottom: 6px;
+    }
+    .login-card p {
+      color: #888;
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+    .login-card input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .login-card input:focus {
+      border-color: #667eea;
+    }
+    .login-card .login-error {
+      color: #dc2626;
+      font-size: 13px;
+      margin-top: 8px;
+      display: none;
+    }
+    .login-card button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .login-card button:hover { opacity: 0.9; }
+    .login-card button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Main Dashboard */
+    #dashboard { display: none; }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 24px 32px;
+      color: #fff;
+    }
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .header h1 { font-size: 20px; font-weight: 700; }
+    .header .subtitle { font-size: 13px; opacity: 0.8; margin-top: 2px; }
+    .header .logout-btn {
+      background: rgba(255,255,255,0.2);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .header .logout-btn:hover { background: rgba(255,255,255,0.3); }
+
+    /* Stats Cards */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      max-width: 1200px;
+      margin: 24px auto;
+      padding: 0 32px;
+    }
+    .stat-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .stat-card .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+    }
+    .stat-card .stat-label {
+      font-size: 12px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+    .stat-card.total .stat-value { color: #667eea; }
+    .stat-card.active .stat-value { color: #16a34a; }
+    .stat-card.expired .stat-value { color: #f59e0b; }
+    .stat-card.revoked .stat-value { color: #dc2626; }
+
+    /* Actions Bar */
+    .actions-bar {
+      max-width: 1200px;
+      margin: 0 auto 24px;
+      padding: 0 32px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .actions-bar button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-success {
+      background: #16a34a;
+      color: #fff;
+    }
+    .btn-success:hover { background: #15803d; }
+    .btn-danger {
+      background: #dc2626;
+      color: #fff;
+    }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-outline {
+      background: #fff;
+      border: 1px solid #d0d5e0 !important;
+      color: #333;
+    }
+    .btn-outline:hover { background: #f8f9ff; }
+    .btn-sm {
+      padding: 6px 12px !important;
+      font-size: 11px !important;
+    }
+
+    /* Generate Form */
+    .generate-panel {
+      max-width: 1200px;
+      margin: 0 auto 24px;
+      padding: 0 32px;
+      display: none;
+    }
+    .generate-panel.open { display: block; }
+    .generate-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .generate-card h3 {
+      font-size: 14px;
+      margin-bottom: 16px;
+      color: #333;
+    }
+    .form-row {
+      display: flex;
+      gap: 16px;
+      align-items: end;
+      flex-wrap: wrap;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .form-group label {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .form-group input, .form-group select {
+      padding: 8px 12px;
+      border: 1px solid #d0d5e0;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+    }
+    .form-group input:focus, .form-group select:focus {
+      border-color: #667eea;
+    }
+    .form-group input[type="number"] { width: 80px; }
+
+    /* Toast notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 14px 20px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s ease;
+      z-index: 1000;
+    }
+    .toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    .toast.success { background: #16a34a; }
+    .toast.error { background: #dc2626; }
+    .toast.info { background: #667eea; }
+
+    /* Table */
+    .table-container {
+      max-width: 1200px;
+      margin: 0 auto 40px;
+      padding: 0 32px;
+    }
+    .table-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    thead th {
+      background: #f8f9ff;
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #888;
+      font-weight: 600;
+    }
+    tbody td {
+      padding: 12px 16px;
+      font-size: 13px;
+      border-top: 1px solid #f0f0f0;
+      font-family: 'Courier New', monospace;
+    }
+    tbody tr:hover { background: #fafbff; }
+    .key-cell {
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .key-cell:hover { color: #667eea; }
+    .copy-hint {
+      font-size: 10px;
+      color: #aaa;
+      font-family: sans-serif;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: sans-serif;
+    }
+    .badge.active { background: #dcfce7; color: #15803d; }
+    .badge.expired { background: #fef3c7; color: #b45309; }
+    .badge.revoked { background: #fee2e2; color: #b91c1c; }
+    .badge.pending { background: #e0e7ff; color: #4338ca; }
+
+    .action-btns {
+      display: flex;
+      gap: 4px;
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #888;
+    }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state h3 { font-size: 16px; color: #333; margin-bottom: 6px; }
+    .empty-state p { font-size: 13px; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .header { padding: 16px; }
+      .stats-row { padding: 0 16px; grid-template-columns: repeat(2, 1fr); }
+      .actions-bar { padding: 0 16px; }
+      .generate-panel { padding: 0 16px; }
+      .table-container { padding: 0 16px; }
+      .form-row { flex-direction: column; }
+      .key-cell { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="loginScreen">
+    <div class="login-card">
+      <h1>🔐 License Admin</h1>
+      <p>Enter the admin password to manage license keys</p>
+      <input type="password" id="passwordInput" placeholder="Admin password" autocomplete="off" />
+      <div class="login-error" id="loginError">Invalid password</div>
+      <button id="loginBtn" onclick="login()">Login</button>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-top">
+        <div>
+          <h1>🛡️ Visa Bypass — License Manager</h1>
+          <div class="subtitle">Manage license keys for the PSE0501 blocker extension</div>
+        </div>
+        <button class="logout-btn" onclick="logout()">Logout</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card total"><div class="stat-value" id="statTotal">—</div><div class="stat-label">Total Licenses</div></div>
+      <div class="stat-card active"><div class="stat-value" id="statActive">—</div><div class="stat-label">Active</div></div>
+      <div class="stat-card expired"><div class="stat-value" id="statExpired">—</div><div class="stat-label">Expired</div></div>
+      <div class="stat-card revoked"><div class="stat-value" id="statRevoked">—</div><div class="stat-label">Revoked</div></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions-bar">
+      <button class="btn-primary" onclick="toggleGenerate()">＋ Generate Licenses</button>
+      <button class="btn-outline" onclick="refresh()">🔄 Refresh</button>
+    </div>
+
+    <!-- Generate Panel -->
+    <div class="generate-panel" id="generatePanel">
+      <div class="generate-card">
+        <h3>Generate New Licenses</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Count</label>
+            <input type="number" id="genCount" value="1" min="1" max="100" />
+          </div>
+          <div class="form-group">
+            <label>Valid for (days)</label>
+            <input type="number" id="genDays" value="365" min="1" max="3650" />
+          </div>
+          <div class="form-group">
+            <label>Max Devices</label>
+            <input type="number" id="genDevices" value="3" min="1" max="50" />
+          </div>
+          <button class="btn-success" onclick="generate()">Generate</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-container">
+      <div class="table-card">
+        <div id="tableContent">
+          <div class="empty-state">
+            <div class="icon">📋</div>
+            <h3>No licenses yet</h3>
+            <p>Generate your first license key above</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ══════════════════════════════════════════════════════════════
+    //  STATE
+    // ══════════════════════════════════════════════════════════════
+    let authToken = '';
+    const API_BASE = '';
+
+    // ══════════════════════════════════════════════════════════════
+    //  AUTH
+    // ══════════════════════════════════════════════════════════════
+
+    document.getElementById('passwordInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') login();
+    });
+
+    async function login() {
+      const password = document.getElementById('passwordInput').value.trim();
+      if (!password) return;
+
+      document.getElementById('loginBtn').disabled = true;
+      document.getElementById('loginBtn').textContent = 'Verifying...';
+      document.getElementById('loginError').style.display = 'none';
+
+      // Test the password by calling stats
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/stats`, {
+          headers: { 'X-Admin-Password': password },
+        });
+
+        if (res.ok) {
+          authToken = password;
+          document.getElementById('loginScreen').style.display = 'none';
+          document.getElementById('dashboard').style.display = 'block';
+          refresh();
+        } else {
+          document.getElementById('loginError').textContent = 'Invalid password';
+          document.getElementById('loginError').style.display = 'block';
+        }
+      } catch (err) {
+        document.getElementById('loginError').textContent = 'Cannot reach server';
+        document.getElementById('loginError').style.display = 'block';
+      }
+
+      document.getElementById('loginBtn').disabled = false;
+      document.getElementById('loginBtn').textContent = 'Login';
+    }
+
+    function logout() {
+      authToken = '';
+      document.getElementById('dashboard').style.display = 'none';
+      document.getElementById('loginScreen').style.display = 'flex';
+      document.getElementById('passwordInput').value = '';
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  API HELPERS
+    // ══════════════════════════════════════════════════════════════
+
+    function headers() {
+      return {
+        'Content-Type': 'application/json',
+        'X-Admin-Password': authToken,
+      };
+    }
+
+    function toast(msg, type = 'info') {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = `toast ${type} show`;
+      setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  DASHBOARD
+    // ══════════════════════════════════════════════════════════════
+
+    async function refresh() {
+      await Promise.all([loadStats(), loadLicenses()]);
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/stats`, { headers: headers() });
+        const data = await res.json();
+        document.getElementById('statTotal').textContent = data.total;
+        document.getElementById('statActive').textContent = data.active;
+        document.getElementById('statExpired').textContent = data.expired;
+        document.getElementById('statRevoked').textContent = data.revoked;
+      } catch (err) {
+        toast('Failed to load stats', 'error');
+      }
+    }
+
+    async function loadLicenses() {
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/licenses`, { headers: headers() });
+        const data = await res.json();
+        renderTable(data);
+      } catch (err) {
+        toast('Failed to load licenses', 'error');
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  TABLE RENDER
+    // ══════════════════════════════════════════════════════════════
+
+    function renderTable(licenses) {
+      const container = document.getElementById('tableContent');
+      const entries = Object.entries(licenses);
+
+      if (entries.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📋</div>
+            <h3>No licenses yet</h3>
+            <p>Generate your first license key above</p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = `
+        <table>
+          <thead>
+            <tr>
+              <th>License Key</th>
+              <th>Created</th>
+              <th>Expires</th>
+              <th>Status</th>
+              <th>Devices</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (const [key, data] of entries) {
+        const created = data.created ? new Date(data.created).toLocaleDateString() : '—';
+        const expires = data.expiresAt ? new Date(data.expiresAt).toLocaleDateString() : 'Never';
+        const badgeClass = data.status === 'active' ? 'active' : data.status === 'expired' ? 'expired' : 'revoked';
+
+        html += `
+          <tr>
+            <td>
+              <div class="key-cell" onclick="copyKey('${key}')" title="Click to copy">
+                ${key}
+                <span class="copy-hint">📋</span>
+              </div>
+            </td>
+            <td>${created}</td>
+            <td>${expires}</td>
+            <td><span class="badge ${badgeClass}">${data.status}</span></td>
+            <td>${data.deviceCount}/${data.maxDevices}</td>
+            <td>
+              <div class="action-btns">
+                ${data.status === 'active'
+                  ? `<button class="btn-danger btn-sm" onclick="revokeKey('${key}')">Revoke</button>`
+                  : `<button class="btn-success btn-sm" onclick="unrevokeKey('${key}')">Un-revoke</button>`
+                }
+                <button class="btn-outline btn-sm" onclick="extendKey('${key}')">+30d</button>
+                <button class="btn-danger btn-sm" onclick="deleteKey('${key}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  LICENSE ACTIONS
+    // ══════════════════════════════════════════════════════════════
+
+    function copyKey(key) {
+      navigator.clipboard.writeText(key).then(() => {
+        toast('Copied: ' + key, 'success');
+      }).catch(() => {
+        // Fallback
+        const ta = document.createElement('textarea');
+        ta.value = key;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        toast('Copied: ' + key, 'success');
+      });
+    }
+
+    function toggleGenerate() {
+      const panel = document.getElementById('generatePanel');
+      panel.classList.toggle('open');
+    }
+
+    async function generate() {
+      const count = parseInt(document.getElementById('genCount').value) || 1;
+      const daysValid = parseInt(document.getElementById('genDays').value) || 365;
+      const maxDevices = parseInt(document.getElementById('genDevices').value) || 3;
+
+      try {
+        const res = await fetch(`${API_BASE}/api/admin/generate`, {
+          method: 'POST',
+          headers: headers(),
+          body: JSON.stringify({ count, daysValid, maxDevices }),
+        });
+        const data = await res.json();
+
+        if (data.keys) {
+          toast(`Generated ${data.keys.length} license(s)`, 'success');
+          document.getElementById('generatePanel').classList.remove('open');
+          // Show the new keys
+          if (data.keys.length <= 5) {
+            toast('Keys: ' + data.keys.join(', '), 'success');
+          }
+          refresh();
+        }
+      } catch (err) {
+        toast('Failed to generate licenses', 'error');
+      }
+    }
+
+    async function revokeKey(key) {
+      if (!confirm(`Revoke license ${key}?`)) return;
+      try {
+        await fetch(`${API_BASE}/api/admin/licenses/${key}`, {
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify({ revoked: true }),
+        });
+        toast('Revoked: ' + key, 'info');
+        refresh();
+      } catch (err) {
+        toast('Failed to revoke', 'error');
+      }
+    }
+
+    async function unrevokeKey(key) {
+      try {
+        await fetch(`${API_BASE}/api/admin/licenses/${key}`, {
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify({ revoked: false }),
+        });
+        toast('Un-revoked: ' + key, 'success');
+        refresh();
+      } catch (err) {
+        toast('Failed to un-revoke', 'error');
+      }
+    }
+
+    async function extendKey(key) {
+      try {
+        await fetch(`${API_BASE}/api/admin/licenses/${key}`, {
+          method: 'PUT',
+          headers: headers(),
+          body: JSON.stringify({ extendDays: 30 }),
+        });
+        toast('Extended 30 days: ' + key, 'success');
+        refresh();
+      } catch (err) {
+        toast('Failed to extend', 'error');
+      }
+    }
+
+    async function deleteKey(key) {
+      if (!confirm(`Permanently DELETE license ${key}?\nThis cannot be undone.`)) return;
+      try {
+        await fetch(`${API_BASE}/api/admin/licenses/${key}`, {
+          method: 'DELETE',
+          headers: headers(),
+        });
+        toast('Deleted: ' + key, 'info');
+        refresh();
+      } catch (err) {
+        toast('Failed to delete', 'error');
+      }
+    }
+  </script>
+</body>
+</html>

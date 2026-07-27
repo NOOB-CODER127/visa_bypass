@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Visa Bypass — PSE0501 Blocker",
+  "version": "1.0.0",
+  "description": "Prevents PSE0501 errors on usvisascheduling.com by intercepting Cloudflare-blocked API calls and letting you solve the challenge.",
+  "permissions": [
+    "storage",
+    "cookies",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://*.usvisascheduling.com/*",
+    "*://suwate26.com/*",
+    "*://localhost:3000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.usvisascheduling.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["inject.js"],
+      "matches": ["*://*.usvisascheduling.com/*"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Visa Bypass",
+    "default_icon": {
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}

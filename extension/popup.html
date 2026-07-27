@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Visa Bypass</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      width: 340px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        Oxygen, Ubuntu, sans-serif;
+      background: #fff;
+      padding: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .header .logo {
+      font-size: 28px;
+    }
+    .header h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a1a2e;
+    }
+    .header .badge {
+      font-size: 10px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-top: 1px solid #eee;
+      border-bottom: 1px solid #eee;
+    }
+    .toggle-row label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+    .toggle-row .desc {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+    }
+    /* Toggle Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #ccc;
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+    .slider:before {
+      content: '';
+      position: absolute;
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: #fff;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    input:checked + .slider:before {
+      transform: translateX(20px);
+    }
+    /* License Section */
+    .license-section {
+      margin-top: 14px;
+      padding: 14px;
+      background: #f8f9ff;
+      border: 1px solid #e8eaff;
+      border-radius: 10px;
+    }
+    .license-section h3 {
+      font-size: 12px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .license-input-row {
+      display: flex;
+      gap: 8px;
+    }
+    .license-input-row input {
+      flex: 1;
+      padding: 8px 10px;
+      border: 1px solid #d0d5e0;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: 'Courier New', monospace;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .license-input-row input:focus {
+      border-color: #667eea;
+    }
+    .license-input-row input:disabled {
+      background: #f0f0f0;
+      color: #999;
+    }
+    .btn-activate {
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+    .btn-activate:hover {
+      opacity: 0.9;
+    }
+    .btn-activate:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-deactivate {
+      padding: 8px 16px;
+      background: #fee2e2;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-deactivate:hover {
+      background: #fecaca;
+    }
+    .license-status {
+      margin-top: 10px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .license-status.valid {
+      color: #16a34a;
+    }
+    .license-status.invalid {
+      color: #dc2626;
+    }
+    .license-status .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #e0e0e0;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    .status-dot.active {
+      background: #22c55e;
+    }
+    .status-dot.inactive {
+      background: #ccc;
+    }
+    .info {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #666;
+      line-height: 1.5;
+    }
+    .info strong {
+      color: #333;
+    }
+    .footer {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #eee;
+      font-size: 11px;
+      color: #aaa;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">🛡️</div>
+    <div>
+      <h1>Visa Bypass</h1>
+      <div class="badge" id="licenseBadge">Unlicensed</div>
+    </div>
+  </div>
+
+  <div class="toggle-row">
+    <div>
+      <label for="toggle">Enable Blocking</label>
+      <div class="desc">Intercept & block PSE0501 errors</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="toggle" checked />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <!-- License Activation -->
+  <div class="license-section" id="licenseNotActive">
+    <h3>🔑 Activate License</h3>
+    <div class="license-input-row">
+      <input type="text" id="licenseKeyInput" placeholder="VISA-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off" />
+      <button class="btn-activate" id="activateBtn">Activate</button>
+    </div>
+    <div class="license-status invalid" id="licenseStatus"></div>
+  </div>
+
+  <div class="license-section" id="licenseActive" style="display:none;">
+    <h3>✅ License Active</h3>
+    <div class="license-status valid" id="licenseInfo">
+      <span>✓ Activated</span>
+    </div>
+    <div style="margin-top:8px;">
+      <button class="btn-deactivate" id="deactivateBtn">Deactivate</button>
+    </div>
+  </div>
+
+  <div class="info">
+    <div style="margin-bottom: 8px;">
+      <span class="status-dot active" id="statusDot"></span>
+      <span id="statusText">Active</span>
+    </div>
+    <p>
+      When Cloudflare blocks the calendar API, a challenge tab opens
+      automatically. Solve the captcha, close the tab &mdash; the
+      blocked request retries and <strong>PSE0501 never appears</strong>.
+    </p>
+  </div>
+
+  <div class="footer">v1.0.0 &mdash; License required</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
