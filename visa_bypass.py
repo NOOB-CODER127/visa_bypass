@@ -21,6 +21,7 @@ SETUP:
   pip install -r requirements.txt
   playwright install chromium
 
+
 USAGE:
   python visa_bypass.py
 
