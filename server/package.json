@@ -4,13 +4,16 @@
   "description": "License verification server for Visa Bypass extension",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node index.js",
+    "vercel-dev": "vercel dev"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "express": "^4.21.0",
-    "cors": "^2.8.5"
+    "@vercel/postgres": "^0.10.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0"
   }
 }

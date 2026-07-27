@@ -17,11 +17,22 @@
 // Production: Set to your domain (e.g. 'https://suwate26.com')
 // Dev: Set to 'http://localhost:3000'
 //
-// ⚠  Deployment flow:
-//    1. Deploy server to Render → get https://your-app.onrender.com
-//    2. Verify it works with that URL in this config
-//    3. Set up custom domain (suwate26.com) on Render
-//    4. Update this URL to 'https://suwate26.com'
+// ⚠  Deployment options:
+//
+//   Option A — Vercel (recommended):
+//     1. Push repo to GitHub
+//     2. Import into Vercel → set root dir to 'server'
+//     3. Create a Postgres database in Vercel Storage
+//     4. Link DB to project (env vars auto-injected)
+//     5. Set ADMIN_PASSWORD env var → deploy
+//     6. Get URL like https://visa-bypass.vercel.app
+//     7. Set up custom domain suwate26.com in Vercel dashboard
+//     8. Update this URL to 'https://suwate26.com'
+//
+//   Option B — Render (alternative):
+//     1. Deploy server to Render → get https://your-app.onrender.com
+//     2. Set up custom domain (suwate26.com) on Render
+//     3. Update this URL to 'https://suwate26.com'
 //
 const LICENSE_SERVER_URL = 'https://suwate26.com';
 const STORAGE_KEY = 'pendingVisaSolve';
