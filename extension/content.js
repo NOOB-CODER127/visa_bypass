@@ -20,17 +20,12 @@ script.onload = () => script.remove();
 
 // ── State ─────────────────────────────────────────────────────────
 let isEnabled = true;
-let isLicensed = false;
 let isSolving = false;
 let blockedQueue = [];
 
 // Load persisted state
-Promise.all([
-  chrome.storage.local.get(['enabled']),
-  chrome.storage.local.get(['license']),
-]).then(([enabledResult, licenseResult]) => {
-  if (enabledResult.enabled === false) isEnabled = false;
-  if (licenseResult.license && licenseResult.license.verified) isLicensed = true;
+chrome.storage.local.get(['enabled']).then((result) => {
+  if (result.enabled === false) isEnabled = false;
 });
 
 // ── Queue Processing ──────────────────────────────────────────────
@@ -38,18 +33,10 @@ Promise.all([
 function processQueue() {
   if (blockedQueue.length === 0) return;
 
-  // Check if cf_clearance already exists before opening another tab
-  chrome.runtime.sendMessage(
-    {
-      type: 'VISA_OPEN_CF_TAB',
-      blockedUrl: blockedQueue.shift(),
-    },
-    () => {
-      // If background detects existing cookie, it sends VISA_CF_SOLVED
-      // immediately and we never enter solving state for this item.
-      // If not, background opens a tab and we set isSolving.
-    }
-  );
+  chrome.runtime.sendMessage({
+    type: 'VISA_OPEN_CF_TAB',
+    blockedUrl: blockedQueue.shift(),
+  });
 
   isSolving = true;
 
@@ -75,13 +62,22 @@ function onSolveComplete() {
   window.postMessage({ type: 'VISA_CONTINUE_REQUEST' }, '*');
 }
 
+function onLicenseFailed() {
+  isSolving = false;
+  blockedQueue = [];
+
+  // Broadcast abort to ALL waiting fetches/XHRs in inject.js
+  // They will return the original 403 response (no retry).
+  window.postMessage({ type: 'VISA_LICENSE_FAILED' }, '*');
+}
+
 // ── Communication ─────────────────────────────────────────────────
 
 // Listen for CF block notifications from injected main-world script
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (!event.data || event.data.type !== 'VISA_CF_BLOCK') return;
-  if (!isEnabled || !isLicensed) return;
+  if (!isEnabled) return;
 
   const blockedUrl = event.data.url || 'https://www.usvisascheduling.com/en-US/';
 
@@ -104,6 +100,10 @@ chrome.runtime.onMessage.addListener((message) => {
     onSolveComplete();
   }
 
+  if (message.type === 'VISA_LICENSE_FAILED') {
+    onLicenseFailed();
+  }
+
   if (message.type === 'VISA_CF_SOLVE_ERROR') {
     // Couldn't open tab — reset and clear queue
     isSolving = false;
@@ -112,9 +112,5 @@ chrome.runtime.onMessage.addListener((message) => {
 
   if (message.type === 'VISA_STATUS_CHANGE') {
     isEnabled = message.enabled;
-  }
-
-  if (message.type === 'VISA_LICENSE_CHANGE') {
-    isLicensed = message.licensed;
   }
 });

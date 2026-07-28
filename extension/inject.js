@@ -94,16 +94,25 @@
           '*'
         );
 
-        // Wait for user to solve the challenge
-        await new Promise((resolve) => {
+        // Wait for solve signal or license abort
+        const waitResult = await new Promise((resolve) => {
           function listener(event) {
             if (event.data && event.data.type === 'VISA_CONTINUE_REQUEST') {
               window.removeEventListener('message', listener);
-              resolve();
+              resolve('continue');
+            }
+            if (event.data && event.data.type === 'VISA_LICENSE_FAILED') {
+              window.removeEventListener('message', listener);
+              resolve('abort');
             }
           }
           window.addEventListener('message', listener);
         });
+
+        if (waitResult === 'abort') {
+          // License invalid — return the original blocked response
+          return response;
+        }
 
         // Brief delay for cookie propagation
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
@@ -219,16 +228,28 @@
     // Notify content script to open CF challenge tab
     window.postMessage({ type: 'VISA_CF_BLOCK', url }, '*');
 
-    // Wait for the user to solve the challenge
-    await new Promise((resolve) => {
+    // Wait for solve signal or license abort
+    const waitResult = await new Promise((resolve) => {
       const listener = (event) => {
         if (event.data && event.data.type === 'VISA_CONTINUE_REQUEST') {
           window.removeEventListener('message', listener);
-          resolve();
+          resolve('continue');
+        }
+        if (event.data && event.data.type === 'VISA_LICENSE_FAILED') {
+          window.removeEventListener('message', listener);
+          resolve('abort');
         }
       };
       window.addEventListener('message', listener);
     });
+
+    if (waitResult === 'abort') {
+      // License invalid — fire original handlers with the original 403 response
+      // so the page shows the PSE error as if the extension wasn't there
+      if (handlers.onreadystatechange) handlers.onreadystatechange.call(origXhr);
+      if (handlers.onload) handlers.onload.call(origXhr);
+      return;
+    }
 
     // Brief delay for cookie propagation
     await new Promise((r) => setTimeout(r, 500));

@@ -18,28 +18,31 @@ const licenseInfo = document.getElementById('licenseInfo');
 
 let isLicensed = false;
 
-// ── Load saved state ──────────────────────────────────────────────
+// ── Load state from background (server-verified) ─────────────────
 
 async function loadState() {
-  const [enabledResult, licenseResult] = await Promise.all([
-    chrome.storage.local.get(['enabled']),
-    chrome.storage.local.get(['license']),
-  ]);
-
-  const enabled = enabledResult.enabled !== false;
-  toggle.checked = enabled;
-  updateToggleUI(enabled);
-
-  const license = licenseResult.license;
-  if (license && license.verified) {
-    isLicensed = true;
-    showLicensed(license);
-  } else {
-    isLicensed = false;
-    showUnlicensed();
-  }
+  // Ask background for server-verified status
+  chrome.runtime.sendMessage({ type: 'VISA_GET_STATUS' });
 }
 
+// Listen for the status response
+chrome.runtime.onMessage.addListener(function statusListener(message) {
+  if (message.type === 'VISA_STATUS') {
+    const enabled = message.enabled;
+    toggle.checked = enabled;
+    updateToggleUI(enabled, message.licensed);
+
+    if (message.licensed) {
+      isLicensed = true;
+      showLicensed(message.licenseInfo);
+    } else {
+      isLicensed = false;
+      showUnlicensed();
+    }
+  }
+});
+
+// Trigger initial load
 loadState().catch((err) => console.error('Visa Bypass: Error loading state', err));
 
 // ── Toggle handler ────────────────────────────────────────────────
@@ -50,11 +53,11 @@ toggle.addEventListener('change', () => {
   updateToggleUI(enabled);
 });
 
-function updateToggleUI(enabled) {
-  if (enabled && isLicensed) {
+function updateToggleUI(enabled, licensed) {
+  if (enabled && licensed) {
     statusDot.className = 'status-dot active';
     statusText.textContent = 'Active — blocking PSE0501';
-  } else if (enabled && !isLicensed) {
+  } else if (enabled && !licensed) {
     statusDot.className = 'status-dot inactive';
     statusText.textContent = 'Activate license to enable';
   } else {

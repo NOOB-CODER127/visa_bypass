@@ -20,7 +20,18 @@ const LICENSE_SERVER_URL = 'https://visa-bypass.vercel.app';
 const STORAGE_KEY = 'pendingVisaSolve';
 const COOKIE_NAME = 'cf_clearance';
 
-// ── License Verification ───────────────────────────────────────────
+// ── License Verification (server-side, cached) ────────────────────
+// License is NOT cached in storage — every interception re-checks
+// with the server.  In-memory cache with 5-minute TTL reduces
+// redundant calls while keeping tampering window very small.
+
+const LICENSE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+let licenseCache = {
+  valid: false,
+  key: null,
+  expiresAt: 0,
+};
 
 async function verifyLicense(licenseKey) {
   try {
@@ -35,11 +46,36 @@ async function verifyLicense(licenseKey) {
   }
 }
 
-async function broadcastLicenseStatus(licensed) {
-  const tabs = await chrome.tabs.query({ url: '*://*.usvisascheduling.com/*' });
-  tabs.forEach((tab) => {
-    chrome.tabs.sendMessage(tab.id, { type: 'VISA_LICENSE_CHANGE', licensed }).catch(() => {});
-  });
+async function checkLicenseServer() {
+  const now = Date.now();
+
+  // Return cached result if still fresh
+  if (now < licenseCache.expiresAt) {
+    return licenseCache.valid;
+  }
+
+  // Look up stored license key
+  const result = await chrome.storage.local.get(['license']);
+  const key = result.license?.key;
+  if (!key) {
+    licenseCache = { valid: false, key: null, expiresAt: now + LICENSE_CACHE_TTL };
+    return false;
+  }
+
+  try {
+    const serverResult = await verifyLicense(key);
+    licenseCache = {
+      valid: serverResult.valid,
+      key: key,
+      expiresAt: now + LICENSE_CACHE_TTL,
+    };
+    return serverResult.valid;
+  } catch (_) {
+    // Server unreachable — use stale cache or default to invalid
+    if (now < licenseCache.expiresAt) return licenseCache.valid;
+    licenseCache = { valid: false, key: null, expiresAt: now + LICENSE_CACHE_TTL };
+    return false;
+  }
 }
 
 // ── Initialize: check stored license on startup ───────────────────
@@ -79,21 +115,32 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
 
   if (message.type === 'VISA_GET_STATUS') {
-    Promise.all([
-      chrome.storage.local.get(['enabled']),
-      chrome.storage.local.get(['license']),
-    ]).then(([enabledResult, licenseResult]) => {
+    (async () => {
+      const [enabledResult] = await Promise.all([
+        chrome.storage.local.get(['enabled']),
+      ]);
+      const isValid = await checkLicenseServer();
       chrome.runtime.sendMessage({
         type: 'VISA_STATUS',
         enabled: enabledResult.enabled !== false,
-        licensed: !!(licenseResult.license && licenseResult.license.verified),
-        licenseInfo: licenseResult.license || null,
+        licensed: isValid,
       });
-    });
+    })();
   }
 
   if (message.type === 'VISA_ACTIVATE_LICENSE') {
     handleActivateLicense(message);
+  }
+
+  // Intercepted: respond with server-verified status
+  if (message.type === 'VISA_GET_LICENSE_STATUS') {
+    (async () => {
+      const isValid = await checkLicenseServer();
+      chrome.runtime.sendMessage({
+        type: 'VISA_LICENSE_STATUS',
+        valid: isValid,
+      });
+    })();
   }
 });
 
@@ -103,10 +150,9 @@ async function handleActivateLicense(message) {
   const result = await verifyLicense(message.licenseKey);
 
   if (result.valid) {
-    // Store verified license
+    // Store license KEY only (no 'verified' flag — trust is server-side)
     await chrome.storage.local.set({
       license: {
-        verified: true,
         key: message.licenseKey.trim().toUpperCase(),
         expiresAt: result.expiresAt,
         activatedAt: new Date().toISOString(),
@@ -114,15 +160,15 @@ async function handleActivateLicense(message) {
       },
     });
 
+    // Invalidate cache so next checkLicenseServer() re-fetches
+    licenseCache = { valid: true, key: message.licenseKey.trim().toUpperCase(), expiresAt: Date.now() + LICENSE_CACHE_TTL };
+
     // Notify popup
     chrome.runtime.sendMessage({
       type: 'VISA_LICENSE_STATUS',
       valid: true,
       expiresAt: result.expiresAt,
     });
-
-    // Notify all open tabs
-    broadcastLicenseStatus(true);
   } else {
     chrome.runtime.sendMessage({
       type: 'VISA_LICENSE_STATUS',
@@ -137,6 +183,24 @@ async function handleActivateLicense(message) {
 async function handleOpenCfTab(message, sender) {
   const sourceTabId = sender.tab?.id;
   if (!sourceTabId) return;
+
+  // ═════════════════════════════════════════════════════════════════
+  //  SERVER-SIDE LICENSE CHECK (every interception)
+  //  No local 'verified' flag is trusted. The stored license key
+  //  is verified with the server every time (cached in memory with
+  //  5-min TTL to avoid hammering). If the server is unreachable,
+  //  the license is treated as invalid — no bypass without server.
+  // ═════════════════════════════════════════════════════════════════
+  const isValid = await checkLicenseServer();
+  if (!isValid) {
+    chrome.tabs
+      .sendMessage(sourceTabId, {
+        type: 'VISA_LICENSE_FAILED',
+        error: 'License invalid or expired — please activate a valid key in the extension popup.',
+      })
+      .catch(() => {});
+    return;
+  }
 
   const blockedUrl = message.blockedUrl || 'https://www.usvisascheduling.com/en-US/';
 
