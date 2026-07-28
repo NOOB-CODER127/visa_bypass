@@ -50,7 +50,7 @@ loadState().catch((err) => console.error('Visa Bypass: Error loading state', err
 toggle.addEventListener('change', () => {
   const enabled = toggle.checked;
   chrome.runtime.sendMessage({ type: 'VISA_TOGGLE', enabled });
-  updateToggleUI(enabled);
+  updateToggleUI(enabled, isLicensed);
 });
 
 function updateToggleUI(enabled, licensed) {
@@ -83,15 +83,8 @@ deactivateBtn.addEventListener('click', async () => {
   await chrome.storage.local.remove('license');
   isLicensed = false;
   showUnlicensed();
-  updateToggleUI(toggle.checked);
+  updateToggleUI(toggle.checked, false);
   licenseBadge.textContent = 'Unlicensed';
-
-  // Notify tabs
-  chrome.tabs.query({ url: '*://*.usvisascheduling.com/*' }).then((tabs) => {
-    tabs.forEach((tab) => {
-      chrome.tabs.sendMessage(tab.id, { type: 'VISA_LICENSE_CHANGE', licensed: false }).catch(() => {});
-    });
-  });
 });
 
 // ── Listen for license verification result ────────────────────────
@@ -106,7 +99,7 @@ chrome.runtime.onMessage.addListener((message) => {
         expiresAt: message.expiresAt,
         key: licenseKeyInput.value.trim().toUpperCase(),
       });
-      updateToggleUI(toggle.checked);
+      updateToggleUI(toggle.checked, true);
       licenseBadge.textContent = 'Licensed ✓';
     } else {
       showLicenseError(message.error || 'Activation failed');

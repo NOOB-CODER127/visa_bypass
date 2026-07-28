@@ -25,7 +25,8 @@ const COOKIE_NAME = 'cf_clearance';
 // with the server.  In-memory cache with 5-minute TTL reduces
 // redundant calls while keeping tampering window very small.
 
-const LICENSE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const LICENSE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes for success
+const LICENSE_FAILURE_TTL = 30 * 1000; // 30 seconds for failures
 
 let licenseCache = {
   valid: false,
@@ -67,13 +68,13 @@ async function checkLicenseServer() {
     licenseCache = {
       valid: serverResult.valid,
       key: key,
-      expiresAt: now + LICENSE_CACHE_TTL,
+      expiresAt: now + (serverResult.valid ? LICENSE_CACHE_TTL : LICENSE_FAILURE_TTL),
     };
     return serverResult.valid;
   } catch (_) {
     // Server unreachable — use stale cache or default to invalid
     if (now < licenseCache.expiresAt) return licenseCache.valid;
-    licenseCache = { valid: false, key: null, expiresAt: now + LICENSE_CACHE_TTL };
+    licenseCache = { valid: false, key: null, expiresAt: now + LICENSE_FAILURE_TTL };
     return false;
   }
 }
@@ -130,17 +131,6 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
   if (message.type === 'VISA_ACTIVATE_LICENSE') {
     handleActivateLicense(message);
-  }
-
-  // Intercepted: respond with server-verified status
-  if (message.type === 'VISA_GET_LICENSE_STATUS') {
-    (async () => {
-      const isValid = await checkLicenseServer();
-      chrome.runtime.sendMessage({
-        type: 'VISA_LICENSE_STATUS',
-        valid: isValid,
-      });
-    })();
   }
 });
 
