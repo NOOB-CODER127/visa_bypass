@@ -135,9 +135,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
   if (message.type === 'VISA_DEACTIVATE_LICENSE') {
     // Immediately invalidate in-memory cache AND clear storage
+    // Note: popup already updates its own UI on click — no response needed
     licenseCache = { valid: false, key: null, expiresAt: 0 };
-    chrome.storage.local.remove('license');
-    chrome.runtime.sendMessage({ type: 'VISA_LICENSE_STATUS', valid: false });
+    chrome.storage.local.remove('license').catch(() => {});
   }
 });
 
