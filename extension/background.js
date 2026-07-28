@@ -140,16 +140,9 @@ async function handleOpenCfTab(message, sender) {
 
   const blockedUrl = message.blockedUrl || 'https://www.usvisascheduling.com/en-US/';
 
-  // Check if cf_clearance already exists
-  try {
-    const cookie = await chrome.cookies.get({ url: blockedUrl, name: COOKIE_NAME });
-    if (cookie && cookie.value) {
-      chrome.tabs.sendMessage(sourceTabId, { type: 'VISA_CF_SOLVED' }).catch(() => {});
-      return;
-    }
-  } catch (_) {}
-
-  // Open a new tab to the blocked API URL
+  // Open a new tab directly to the blocked API URL
+  // This forces a real CF Turnstile challenge, ensuring the cookie
+  // is fresh — no stale cf_clearance pre-check.
   try {
     const tab = await chrome.tabs.create({ url: blockedUrl, active: true });
 

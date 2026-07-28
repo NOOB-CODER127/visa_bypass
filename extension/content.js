@@ -21,7 +21,8 @@ script.onload = () => script.remove();
 // ── State ─────────────────────────────────────────────────────────
 let isEnabled = true;
 let isLicensed = false;
-let pendingSolve = false;
+let isSolving = false;
+let blockedQueue = [];
 
 // Load persisted state
 Promise.all([
@@ -32,6 +33,48 @@ Promise.all([
   if (licenseResult.license && licenseResult.license.verified) isLicensed = true;
 });
 
+// ── Queue Processing ──────────────────────────────────────────────
+
+function processQueue() {
+  if (blockedQueue.length === 0) return;
+
+  // Check if cf_clearance already exists before opening another tab
+  chrome.runtime.sendMessage(
+    {
+      type: 'VISA_OPEN_CF_TAB',
+      blockedUrl: blockedQueue.shift(),
+    },
+    () => {
+      // If background detects existing cookie, it sends VISA_CF_SOLVED
+      // immediately and we never enter solving state for this item.
+      // If not, background opens a tab and we set isSolving.
+    }
+  );
+
+  isSolving = true;
+
+  // Safety timeout: auto-reset after 10 minutes
+  setTimeout(() => {
+    if (isSolving) {
+      isSolving = false;
+      blockedQueue = [];
+    }
+  }, 10 * 60 * 1000);
+}
+
+function onSolveComplete() {
+  isSolving = false;
+
+  // Clear the queue — all waiting fetches/XHRs in inject.js will
+  // retry with the fresh cf_clearance via VISA_CONTINUE_REQUEST.
+  // If any retry still gets 403, it posts a new VISA_CF_BLOCK which
+  // will trigger a new solve naturally (self-healing).
+  blockedQueue = [];
+
+  // Broadcast continue to ALL waiting fetches/XHRs in inject.js
+  window.postMessage({ type: 'VISA_CONTINUE_REQUEST' }, '*');
+}
+
 // ── Communication ─────────────────────────────────────────────────
 
 // Listen for CF block notifications from injected main-world script
@@ -39,38 +82,32 @@ window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (!event.data || event.data.type !== 'VISA_CF_BLOCK') return;
   if (!isEnabled || !isLicensed) return;
-  if (pendingSolve) return; // Already handling one
 
-  pendingSolve = true;
   const blockedUrl = event.data.url || 'https://www.usvisascheduling.com/en-US/';
 
-  // Safety timeout: auto-reset after 3 minutes so extension can't get stuck
-  setTimeout(() => { pendingSolve = false; }, 3 * 60 * 1000);
+  if (isSolving) {
+    // Already solving one — queue this for later
+    if (!blockedQueue.includes(blockedUrl)) {
+      blockedQueue.push(blockedUrl);
+    }
+    return;
+  }
 
-  // Tell background to open CF solve tab to the blocked URL
-  chrome.runtime.sendMessage({
-    type: 'VISA_OPEN_CF_TAB',
-    blockedUrl: blockedUrl,
-  });
+  // Start a new solve
+  blockedQueue.push(blockedUrl);
+  processQueue();
 });
 
 // Listen for messages from background service worker
 chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === 'VISA_CF_SOLVED') {
-    // Cookie was detected — auto-retry
-    pendingSolve = false;
-    window.postMessage({ type: 'VISA_CONTINUE_REQUEST' }, '*');
-  }
-
-  if (message.type === 'VISA_CF_TAB_CLOSED') {
-    // User closed the solve tab — retry automatically
-    pendingSolve = false;
-    window.postMessage({ type: 'VISA_CONTINUE_REQUEST' }, '*');
+  if (message.type === 'VISA_CF_SOLVED' || message.type === 'VISA_CF_TAB_CLOSED') {
+    onSolveComplete();
   }
 
   if (message.type === 'VISA_CF_SOLVE_ERROR') {
-    // Couldn't open tab — reset so next block attempt works
-    pendingSolve = false;
+    // Couldn't open tab — reset and clear queue
+    isSolving = false;
+    blockedQueue = [];
   }
 
   if (message.type === 'VISA_STATUS_CHANGE') {

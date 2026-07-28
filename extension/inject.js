@@ -61,10 +61,15 @@
   }
 
   // ══════════════════════════════════════════════════════════════════
-  //  FETCH OVERRIDE
+  //  FETCH OVERRIDE — with retry loop
+  // ══════════════════════════════════════════════════════════════════
+  //  Retries up to MAX_RETRIES times after solving. The first block
+  //  triggers the CF solve tab; subsequent retries wait silently.
   // ══════════════════════════════════════════════════════════════════
 
   const originalFetch = window.fetch.bind(window);
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 500;
 
   window.fetch = async function (input, init) {
     const requestUrl =
@@ -78,37 +83,48 @@
       return originalFetch(input, init);
     }
 
-    // Make the real request
     let response = await originalFetch(input, init);
+    let retries = 0;
 
-    // Check if Cloudflare blocked it
-    if (!response.ok && isCfMitigated(response)) {
-      // Notify content script to auto-open challenge tab
-      window.postMessage(
-        { type: 'VISA_CF_BLOCK', url: resolveUrl(requestUrl) },
-        '*'
-      );
+    while (!response.ok && isCfMitigated(response) && retries < MAX_RETRIES) {
+      if (retries === 0) {
+        // First block: notify content script to open challenge tab
+        window.postMessage(
+          { type: 'VISA_CF_BLOCK', url: resolveUrl(requestUrl) },
+          '*'
+        );
 
-      // Wait for user to solve the challenge
-      await new Promise((resolve) => {
-        function listener(event) {
-          if (event.data && event.data.type === 'VISA_CONTINUE_REQUEST') {
-            window.removeEventListener('message', listener);
-            resolve();
+        // Wait for user to solve the challenge
+        await new Promise((resolve) => {
+          function listener(event) {
+            if (event.data && event.data.type === 'VISA_CONTINUE_REQUEST') {
+              window.removeEventListener('message', listener);
+              resolve();
+            }
           }
-        }
-        window.addEventListener('message', listener);
-      });
+          window.addEventListener('message', listener);
+        });
 
-      // Retry the request with fresh cf_clearance
+        // Brief delay for cookie propagation
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      } else {
+        // Subsequent retries: just wait (cf_clearance should exist now)
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * retries));
+      }
+
       response = await originalFetch(input, init);
+      retries++;
     }
 
     return response;
   };
 
   // ══════════════════════════════════════════════════════════════════
-  //  XMLHttpRequest OVERRIDE
+  //  XMLHttpRequest OVERRIDE — proper response monitoring
+  // ══════════════════════════════════════════════════════════════════
+  //  Instead of a test-fetch (which misses the request body), this
+  //  intercept fires AFTER the real XHR completes with a 403/429,
+  //  waits for the CF solve, then retries with a brand-new XHR.
   // ══════════════════════════════════════════════════════════════════
 
   const OrigXHR = window.XMLHttpRequest;
@@ -116,12 +132,19 @@
   const OrigSend = OrigXHR.prototype.send;
   const OrigSetRequestHeader = OrigXHR.prototype.setRequestHeader;
 
-  OrigXHR.prototype.open = function (method, url, asyncFlag) {
-    this._xhrUrl = typeof url === 'string' ? url : String(url);
-    this._xhrMethod = method;
-    this._xhrAsync = asyncFlag !== false;
-    // Store headers
+  OrigXHR.prototype.open = function (method, url, asyncFlag, user, password) {
+    // Store request info for later use
+    this._xhrInfo = {
+      method: method,
+      url: typeof url === 'string' ? url : String(url),
+      async: asyncFlag !== false,
+      user: user,
+      password: password,
+    };
     this._xhrHeaders = {};
+    this._xhrBody = null;
+    this._xhrOrigHandlers = {};
+    this._xhrSkipIntercept = false;
     return OrigOpen.apply(this, arguments);
   };
 
@@ -132,57 +155,100 @@
     return OrigSetRequestHeader.apply(this, arguments);
   };
 
-  // Override send with an async-aware wrapper
-  const XHRSendOverride = async function (body) {
-    // Not an API call — pass through
-    if (!this._xhrUrl || !matchesApi(this._xhrUrl)) {
-      return OrigSend.call(this, body);
-    }
-
-    // Synchronous XHR — pass through (can't intercept safely)
-    if (this._xhrAsync === false) {
+  OrigXHR.prototype.send = function (body) {
+    const info = this._xhrInfo;
+    if (
+      !info ||
+      !matchesApi(info.url) ||
+      info.async === false ||
+      this._xhrSkipIntercept
+    ) {
       return OrigSend.call(this, body);
     }
 
     const xhr = this;
+    xhr._xhrBody = body;
 
-    // Step 1: Make a test fetch to check CF status
-    try {
-      const testResp = await originalFetch(xhr._xhrUrl, {
-        method: xhr._xhrMethod || 'GET',
-        headers: { ...(xhr._xhrHeaders || {}) },
-      });
+    // Store original handlers set via onload/onerror/onreadystatechange
+    const origOnLoad = xhr.onload;
+    const origOnError = xhr.onerror;
+    const origOnReadyState = xhr.onreadystatechange;
 
-      if (!testResp.ok && isCfMitigated(testResp)) {
-        // CF is blocking — auto-open challenge tab, wait for solve
-        window.postMessage(
-          { type: 'VISA_CF_BLOCK', url: resolveUrl(xhr._xhrUrl) },
-          '*'
-        );
+    // Clear them — we'll fire them manually after our intercept checks
+    xhr.onload = null;
+    xhr.onerror = null;
+    xhr.onreadystatechange = null;
 
-        await new Promise((resolve) => {
-          function listener(event) {
-            if (
-              event.data &&
-              event.data.type === 'VISA_CONTINUE_REQUEST'
-            ) {
-              window.removeEventListener('message', listener);
-              resolve();
-            }
-          }
-          window.addEventListener('message', listener);
-        });
+    // Use addEventListener for reliable interception
+    xhr.addEventListener('readystatechange', function onReady() {
+      if (xhr.readyState !== 4) {
+        // Forward intermediate state to original handler
+        if (origOnReadyState) origOnReadyState.call(xhr);
+        return;
       }
-    } catch (_) {
-      // Test request failed — just proceed with normal send
-    }
 
-    // Step 2: Now make the real XHR request
+      xhr.removeEventListener('readystatechange', onReady);
+
+      if (isCfMitigated(xhr)) {
+        // CF blocked — intercept and retry
+        interceptXhrResponse(xhr, {
+          onload: origOnLoad,
+          onerror: origOnError,
+          onreadystatechange: origOnReadyState,
+        });
+        return;
+      }
+
+      // Not blocked — forward to original handlers
+      if (origOnReadyState) origOnReadyState.call(xhr);
+      if (origOnLoad) origOnLoad.call(xhr);
+    });
+
+    xhr.addEventListener('error', function () {
+      if (origOnError) origOnError.call(xhr);
+    });
+
     return OrigSend.call(xhr, body);
   };
 
-  OrigXHR.prototype.send = function (body) {
-    // Call our async wrapper but don't await it — XHR is event-driven
-    XHRSendOverride.call(this, body);
-  };
+  // ── XHR retry helper (separated so it can be async) ───────────────
+
+  async function interceptXhrResponse(origXhr, handlers) {
+    const url = resolveUrl(origXhr._xhrInfo.url);
+
+    // Notify content script to open CF challenge tab
+    window.postMessage({ type: 'VISA_CF_BLOCK', url }, '*');
+
+    // Wait for the user to solve the challenge
+    await new Promise((resolve) => {
+      const listener = (event) => {
+        if (event.data && event.data.type === 'VISA_CONTINUE_REQUEST') {
+          window.removeEventListener('message', listener);
+          resolve();
+        }
+      };
+      window.addEventListener('message', listener);
+    });
+
+    // Brief delay for cookie propagation
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Retry with a fresh XHR — mark to prevent re-interception
+    // IMPORTANT: set _xhrSkipIntercept AFTER open() because
+    // open() initializes it to false.
+    const retryXhr = new OrigXHR();
+    retryXhr.open(
+      origXhr._xhrInfo.method,
+      origXhr._xhrInfo.url,
+      true
+    );
+    retryXhr._xhrSkipIntercept = true;
+    Object.entries(origXhr._xhrHeaders || {}).forEach(([k, v]) =>
+      retryXhr.setRequestHeader(k, v)
+    );
+    retryXhr.onload = handlers.onload;
+    retryXhr.onerror = handlers.onerror;
+    retryXhr.onreadystatechange = handlers.onreadystatechange;
+    retryXhr.send(origXhr._xhrBody);
+  }
 })();
