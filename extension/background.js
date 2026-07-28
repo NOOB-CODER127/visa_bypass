@@ -132,6 +132,13 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   if (message.type === 'VISA_ACTIVATE_LICENSE') {
     handleActivateLicense(message);
   }
+
+  if (message.type === 'VISA_DEACTIVATE_LICENSE') {
+    // Immediately invalidate in-memory cache AND clear storage
+    licenseCache = { valid: false, key: null, expiresAt: 0 };
+    chrome.storage.local.remove('license');
+    chrome.runtime.sendMessage({ type: 'VISA_LICENSE_STATUS', valid: false });
+  }
 });
 
 // ── License Activation ─────────────────────────────────────────────

@@ -79,8 +79,9 @@ activateBtn.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'VISA_ACTIVATE_LICENSE', licenseKey: key });
 });
 
-deactivateBtn.addEventListener('click', async () => {
-  await chrome.storage.local.remove('license');
+deactivateBtn.addEventListener('click', () => {
+  // Delegate to background — clears both in-memory cache and storage
+  chrome.runtime.sendMessage({ type: 'VISA_DEACTIVATE_LICENSE' });
   isLicensed = false;
   showUnlicensed();
   updateToggleUI(toggle.checked, false);
