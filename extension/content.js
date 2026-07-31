@@ -41,7 +41,7 @@ chrome.storage.local
 //  server-side session.  If the response is a redirect to a login
 //  page (or the URL itself changes to one), we alert the user.
 
-const KEEP_ALIVE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const KEEP_ALIVE_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
 const LOGIN_URL_PATTERNS = [
   /(^|\/)(login|signin|logon)(\/|$|\?)/i,
   /session[-_]?expired/i,
