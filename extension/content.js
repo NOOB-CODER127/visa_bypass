@@ -37,7 +37,7 @@ chrome.storage.local
 
 // ── Keep-Alive (prevents auto-logout) ─────────────────────────────
 //  The portal logs users out after ~40 min of inactivity.  We send
-//  a lightweight same-origin request every 5 minutes to refresh the
+//  a lightweight same-origin request every 2 minutes to refresh the
 //  server-side session.  If the response is a redirect to a login
 //  page (or the URL itself changes to one), we alert the user.
 
