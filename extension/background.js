@@ -79,6 +79,22 @@ async function checkLicenseServer() {
   }
 }
 
+// ── Logout Alert ──────────────────────────────────────────────────
+
+function notifyLogout() {
+  if (!chrome.notifications) return;
+  chrome.notifications
+    .create('visa-logout-alert', {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: 'Visa Bypass — Logged out',
+      message:
+        'Your session on usvisascheduling.com has expired. Please log in again.',
+      priority: 2,
+    })
+    .catch(() => {});
+}
+
 // ── Initialize: check stored license on startup ───────────────────
 async function init() {
   // Check for stale pending requests
@@ -117,16 +133,39 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
   if (message.type === 'VISA_GET_STATUS') {
     (async () => {
-      const [enabledResult] = await Promise.all([
+      const [enabledResult, keepAliveResult] = await Promise.all([
         chrome.storage.local.get(['enabled']),
+        chrome.storage.local.get(['keepAlive']),
       ]);
       const isValid = await checkLicenseServer();
       chrome.runtime.sendMessage({
         type: 'VISA_STATUS',
         enabled: enabledResult.enabled !== false,
+        keepAlive: keepAliveResult.keepAlive !== false,
         licensed: isValid,
       });
     })();
+  }
+
+  if (message.type === 'VISA_LOGOUT_DETECTED') {
+    // Session expired or user was redirected to the login page
+    notifyLogout();
+  }
+
+  if (message.type === 'VISA_KEEP_ALIVE_TOGGLE') {
+    chrome.storage.local.set({ keepAlive: message.enabled });
+    chrome.tabs
+      .query({ url: '*://*.usvisascheduling.com/*' })
+      .then((tabs) => {
+        tabs.forEach((tab) => {
+          chrome.tabs
+            .sendMessage(tab.id, {
+              type: 'VISA_KEEP_ALIVE_CHANGE',
+              enabled: message.enabled,
+            })
+            .catch(() => {});
+        });
+      });
   }
 
   if (message.type === 'VISA_ACTIVATE_LICENSE') {

@@ -3,6 +3,7 @@
 // ══════════════════════════════════════════════════════════════════
 
 const toggle = document.getElementById('toggle');
+const keepAliveToggle = document.getElementById('keepAliveToggle');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const licenseBadge = document.getElementById('licenseBadge');
@@ -30,6 +31,7 @@ chrome.runtime.onMessage.addListener(function statusListener(message) {
   if (message.type === 'VISA_STATUS') {
     const enabled = message.enabled;
     toggle.checked = enabled;
+    keepAliveToggle.checked = message.keepAlive !== false;
     updateToggleUI(enabled, message.licensed);
 
     if (message.licensed) {
@@ -51,6 +53,13 @@ toggle.addEventListener('change', () => {
   const enabled = toggle.checked;
   chrome.runtime.sendMessage({ type: 'VISA_TOGGLE', enabled });
   updateToggleUI(enabled, isLicensed);
+});
+
+// ── Keep-alive toggle ────────────────────────────────────────────
+
+keepAliveToggle.addEventListener('change', () => {
+  const enabled = keepAliveToggle.checked;
+  chrome.runtime.sendMessage({ type: 'VISA_KEEP_ALIVE_TOGGLE', enabled });
 });
 
 function updateToggleUI(enabled, licensed) {

@@ -22,11 +22,108 @@ script.onload = () => script.remove();
 let isEnabled = true;
 let isSolving = false;
 let blockedQueue = [];
+let keepAliveEnabled = true;
+let keepAliveTimer = null;
 
 // Load persisted state
-chrome.storage.local.get(['enabled']).then((result) => {
-  if (result.enabled === false) isEnabled = false;
-});
+chrome.storage.local
+  .get(['enabled', 'keepAlive'])
+  .then((result) => {
+    if (result.enabled === false) isEnabled = false;
+    if (result.keepAlive === false) keepAliveEnabled = false;
+    startKeepAlive();
+  })
+  .catch(() => startKeepAlive());
+
+// ── Keep-Alive (prevents auto-logout) ─────────────────────────────
+//  The portal logs users out after ~40 min of inactivity.  We send
+//  a lightweight same-origin request every 5 minutes to refresh the
+//  server-side session.  If the response is a redirect to a login
+//  page (or the URL itself changes to one), we alert the user.
+
+const KEEP_ALIVE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const LOGIN_URL_PATTERNS = [
+  /(^|\/)(login|signin|logon)(\/|$|\?)/i,
+  /session[-_]?expired/i,
+];
+
+function looksLikeLoginUrl(url) {
+  return LOGIN_URL_PATTERNS.some((re) => re.test(url || ''));
+}
+
+let urlWatchTimer = null;
+
+function startKeepAlive() {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+  if (urlWatchTimer) {
+    clearInterval(urlWatchTimer);
+    urlWatchTimer = null;
+  }
+  if (!keepAliveEnabled) return;
+  keepAliveTimer = setInterval(sendKeepAlive, KEEP_ALIVE_INTERVAL_MS);
+  urlWatchTimer = setInterval(checkForLogoutNavigation, 2000);
+}
+
+async function sendKeepAlive() {
+  if (!keepAliveEnabled) return;
+  if (looksLikeLoginUrl(window.location.href)) return; // already logged out
+
+  try {
+    // Derive from the user's actual subdomain so the session cookie
+    // (often domain-scoped) is always sent.
+    const keepAliveUrl = new URL('/en-US/', window.location.origin).href;
+    const resp = await fetch(keepAliveUrl, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+      redirect: 'follow',
+    });
+
+    // If the portal redirected us to a login page, the session died
+    if (resp.redirected && looksLikeLoginUrl(resp.url)) {
+      reportLogout();
+      return;
+    }
+    // 401 on the main page almost certainly means logged out.
+    // 403 counts ONLY if it's NOT a Cloudflare challenge (which we
+    // already handle via the PSE blocker flow).
+    if (resp.status === 401) {
+      reportLogout();
+      return;
+    }
+    if (
+      resp.status === 403 &&
+      resp.headers.get('cf-mitigated') !== 'challenge'
+    ) {
+      reportLogout();
+    }
+  } catch (_) {
+    // Network error — ignore, session state unknown
+  }
+}
+
+let logoutReportedAt = 0;
+function reportLogout() {
+  const now = Date.now();
+  if (now - logoutReportedAt < 60 * 1000) return; // throttle to 1/min
+  logoutReportedAt = now;
+  chrome.runtime.sendMessage({ type: 'VISA_LOGOUT_DETECTED' }).catch(() => {});
+}
+
+// ── Logout detection via URL changes (SPA navigation) ─────────────
+//  The portal is an SPA — watch history for navigations to login.
+let lastHref = window.location.href;
+function checkForLogoutNavigation() {
+  if (!keepAliveEnabled) return;
+  const href = window.location.href;
+  if (href !== lastHref) {
+    lastHref = href;
+    if (looksLikeLoginUrl(href)) reportLogout();
+  }
+}
 
 // ── Queue Processing ──────────────────────────────────────────────
 
@@ -112,5 +209,10 @@ chrome.runtime.onMessage.addListener((message) => {
 
   if (message.type === 'VISA_STATUS_CHANGE') {
     isEnabled = message.enabled;
+  }
+
+  if (message.type === 'VISA_KEEP_ALIVE_CHANGE') {
+    keepAliveEnabled = message.enabled;
+    startKeepAlive();
   }
 });

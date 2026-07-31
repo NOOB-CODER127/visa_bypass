@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "cookies",
-    "tabs"
+    "tabs",
+    "notifications"
   ],
   "host_permissions": [
     "*://*.usvisascheduling.com/*",
