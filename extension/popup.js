@@ -63,12 +63,11 @@ keepAliveToggle.addEventListener('change', () => {
 });
 
 function updateToggleUI(enabled, licensed) {
-  if (enabled && licensed) {
+  // Interception no longer requires a license — status reflects the
+  // toggle only. License info is display-only (badge below).
+  if (enabled) {
     statusDot.className = 'status-dot active';
     statusText.textContent = 'Active — blocking PSE0501';
-  } else if (enabled && !licensed) {
-    statusDot.className = 'status-dot inactive';
-    statusText.textContent = 'Activate license to enable';
   } else {
     statusDot.className = 'status-dot inactive';
     statusText.textContent = 'Disabled — pass through all errors';

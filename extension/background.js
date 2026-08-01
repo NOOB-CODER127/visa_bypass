@@ -21,9 +21,10 @@ const STORAGE_KEY = 'pendingVisaSolve';
 const COOKIE_NAME = 'cf_clearance';
 
 // ── License Verification (server-side, cached) ────────────────────
-// License is NOT cached in storage — every interception re-checks
-// with the server.  In-memory cache with 5-minute TTL reduces
-// redundant calls while keeping tampering window very small.
+// License is only used for the popup status display and activation.
+// It does NOT gate the CF-bypass interception flow — that runs for
+// everyone.  In-memory cache with 5-minute TTL reduces redundant
+// calls.
 
 const LICENSE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes for success
 const LICENSE_FAILURE_TTL = 30 * 1000; // 30 seconds for failures
@@ -220,24 +221,8 @@ async function handleOpenCfTab(message, sender) {
   const sourceTabId = sender.tab?.id;
   if (!sourceTabId) return;
 
-  // ═════════════════════════════════════════════════════════════════
-  //  SERVER-SIDE LICENSE CHECK (every interception)
-  //  No local 'verified' flag is trusted. The stored license key
-  //  is verified with the server every time (cached in memory with
-  //  5-min TTL to avoid hammering). If the server is unreachable,
-  //  the license is treated as invalid — no bypass without server.
-  // ═════════════════════════════════════════════════════════════════
-  const isValid = await checkLicenseServer();
-  if (!isValid) {
-    chrome.tabs
-      .sendMessage(sourceTabId, {
-        type: 'VISA_LICENSE_FAILED',
-        error: 'License invalid or expired — please activate a valid key in the extension popup.',
-      })
-      .catch(() => {});
-    return;
-  }
-
+  // NOTE: No server-side license gate here. The CF-bypass flow runs
+  // for everyone — license status is display-only in the popup.
   const blockedUrl = message.blockedUrl || 'https://www.usvisascheduling.com/en-US/';
 
   // Open a new tab directly to the blocked API URL
