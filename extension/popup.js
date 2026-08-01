@@ -32,7 +32,7 @@ chrome.runtime.onMessage.addListener(function statusListener(message) {
     const enabled = message.enabled;
     toggle.checked = enabled;
     keepAliveToggle.checked = message.keepAlive !== false;
-    updateToggleUI(enabled, message.licensed);
+    updateToggleUI(enabled);
 
     if (message.licensed) {
       isLicensed = true;
@@ -52,7 +52,7 @@ loadState().catch((err) => console.error('Visa Bypass: Error loading state', err
 toggle.addEventListener('change', () => {
   const enabled = toggle.checked;
   chrome.runtime.sendMessage({ type: 'VISA_TOGGLE', enabled });
-  updateToggleUI(enabled, isLicensed);
+  updateToggleUI(enabled);
 });
 
 // ── Keep-alive toggle ────────────────────────────────────────────
@@ -62,7 +62,7 @@ keepAliveToggle.addEventListener('change', () => {
   chrome.runtime.sendMessage({ type: 'VISA_KEEP_ALIVE_TOGGLE', enabled });
 });
 
-function updateToggleUI(enabled, licensed) {
+function updateToggleUI(enabled) {
   // Interception no longer requires a license — status reflects the
   // toggle only. License info is display-only (badge below).
   if (enabled) {
@@ -92,7 +92,7 @@ deactivateBtn.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'VISA_DEACTIVATE_LICENSE' });
   isLicensed = false;
   showUnlicensed();
-  updateToggleUI(toggle.checked, false);
+  updateToggleUI(toggle.checked);
   licenseBadge.textContent = 'Unlicensed';
 });
 
@@ -108,7 +108,7 @@ chrome.runtime.onMessage.addListener((message) => {
         expiresAt: message.expiresAt,
         key: licenseKeyInput.value.trim().toUpperCase(),
       });
-      updateToggleUI(toggle.checked, true);
+      updateToggleUI(toggle.checked);
       licenseBadge.textContent = 'Licensed ✓';
     } else {
       showLicenseError(message.error || 'Activation failed');
