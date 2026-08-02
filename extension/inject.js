@@ -477,9 +477,12 @@
               0
             );
           } else if (isChallenge) {
-            // Proxy IP was CF-challenged — hand off to the normal PSE
-            // solve flow (challenge tab → user solves → direct retry).
-            interceptXhrResponse(xhr, {
+            // Proxy IP was CF-challenged. Try a DIRECT retry from THIS
+            // browser first — the user's cf_clearance may still be
+            // valid, so the request succeeds with NO captcha tab at all.
+            // Only if the direct request is ALSO blocked do we hand off
+            // to the solve flow (challenge tab → user solves → retry).
+            retryDirectFirst(xhr, {
               onload: origOnLoad,
               onerror: origOnError,
               onreadystatechange: origOnReadyState,
@@ -604,6 +607,48 @@
       retryXhr.onerror = handlers.onerror;
       retryXhr.send(origXhr._xhrBody);
     }, delayMs);
+  }
+
+  // ── XHR direct-first retry (relay fallback) ──────────────────────
+  //  When a proxy IP is CF-challenged, retry the request DIRECTLY from
+  //  this browser first. If the user's cf_clearance is still valid the
+  //  direct request succeeds with no captcha tab at all — the relay's
+  //  challenge no longer forces a solve every single calendar hit.
+  function retryDirectFirst(origXhr, handlers) {
+    const retryXhr = new OrigXHR();
+    retryXhr.open(origXhr._xhrInfo.method, origXhr._xhrInfo.url, true);
+    retryXhr._xhrSkipIntercept = true;
+    Object.entries(origXhr._xhrHeaders || {}).forEach(([k, v]) =>
+      retryXhr.setRequestHeader(k, v)
+    );
+    retryXhr.addEventListener('readystatechange', function onDirectReady() {
+      if (retryXhr.readyState !== 4) return;
+      retryXhr.removeEventListener('readystatechange', onDirectReady);
+
+      if (retryXhr.status === 429) {
+        // Direct from this IP is rate-limited (1015) — backoff retry.
+        xhrRateLimitHandler(retryXhr, handlers, 0);
+        return;
+      }
+      if (isCfMitigated(retryXhr)) {
+        // Direct is ALSO blocked — clearance expired. Hand off to the
+        // solve flow (challenge tab → user solves → retry).
+        interceptXhrResponse(retryXhr, handlers);
+        return;
+      }
+      // Direct succeeded — adopt the result onto the ORIGINAL XHR so
+      // both `this`-style and closure-style page handlers see the real
+      // status (not a stale challenge).
+      adoptXhrResult(origXhr, retryXhr);
+      if (handlers.onreadystatechange) handlers.onreadystatechange.call(origXhr);
+      if (handlers.onload) handlers.onload.call(origXhr);
+      try {
+        origXhr.dispatchEvent(new ProgressEvent('load'));
+        origXhr.dispatchEvent(new ProgressEvent('loadend'));
+      } catch (_) {}
+    });
+    retryXhr.onerror = handlers.onerror;
+    retryXhr.send(origXhr._xhrBody);
   }
 
   // ── XHR retry helper (separated so it can be async) ───────────────
