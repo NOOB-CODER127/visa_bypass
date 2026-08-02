@@ -119,10 +119,20 @@ const DEFAULT_VPN_PORT = '8787';
 
 // Local rotation bridge (local-bridge.js) — Chrome talks to localhost
 // so no proxy login dialog is needed; the bridge does the WebShare auth
-// and rotates IPs. POST /rotate switches to a fresh sticky session (or
-// is a no-op in -rotate mode where every connection is already new).
+// and rotates IPs. POST /rotate drops the bridge's live tunnels so the
+// next connection gets a fresh IP from the pool.
 const LOCAL_BRIDGE_HOST = '127.0.0.1';
 const LOCAL_BRIDGE_PORT = 8787;
+
+async function notifyBridgeRotate() {
+  try {
+    await fetch('http://' + LOCAL_BRIDGE_HOST + ':' + LOCAL_BRIDGE_PORT + '/rotate', {
+      method: 'POST',
+    });
+  } catch (_) {
+    // Bridge not running — nothing to rotate.
+  }
+}
 
 function buildPacScript(host, port) {
   const h = String(host || '').trim();
@@ -304,25 +314,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'VISA_ROTATE_REQUEST') {
     // Fire-and-forget: tell the local bridge to switch to a fresh IP.
-    fetch('http://' + LOCAL_BRIDGE_HOST + ':' + LOCAL_BRIDGE_PORT + '/rotate', {
-      method: 'POST',
-    }).catch(() => {});
+    notifyBridgeRotate();
+  }
+
+  if (message.type === 'VISA_CHANGE_IP') {
+    // Manual "Change IP" from the popup: rotate the bridge (drops its
+    // tunnels so the browser must open fresh connections → fresh IPs),
+    // then reload every visa tab so they all re-connect on a new IP.
+    (async () => {
+      await notifyBridgeRotate();
+      await new Promise((r) => setTimeout(r, 600));
+      const tabs = await chrome.tabs.query({ url: '*://*.usvisascheduling.com/*' });
+      for (const t of tabs) {
+        if (t.id) chrome.tabs.reload(t.id).catch(() => {});
+      }
+    })();
   }
 
   if (message.type === 'VISA_CF_BLOCK_PAGE') {
     // Cloudflare WAF served a hard block page (usually caused by a
-    // stale cf_clearance from a previous proxy IP). Purge CF-owned
-    // cookies so the reload starts clean, then reload the tab.
+    // stale cf_clearance from a previous proxy IP). Drop stale tunnels
+    // (fresh IP on next connection) + purge CF-owned cookies, then
+    // reload so the page loads clean.
     // Dedupe: the source tab and the solve tab can both report a block
     // within the same second — one purge+reload round is enough.
     const now = Date.now();
     if (now - lastBlockPageHandledAt < 10 * 1000) return;
     lastBlockPageHandledAt = now;
-    clearCfCookies().finally(() => {
-      if (sender.tab && sender.tab.id) {
-        chrome.tabs.reload(sender.tab.id).catch(() => {});
-      }
-    });
+    notifyBridgeRotate()
+      .then(clearCfCookies)
+      .finally(() => {
+        if (sender.tab && sender.tab.id) {
+          chrome.tabs.reload(sender.tab.id).catch(() => {});
+        }
+      });
   }
 
   if (message.type === 'VISA_ACTIVATE_LICENSE') {

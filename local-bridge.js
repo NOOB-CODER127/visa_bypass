@@ -84,6 +84,12 @@ function log(msg) {
 }
 
 // ── CONNECT (HTTPS tunnels) ───────────────────────────────────────
+//  Tunnels are tracked so POST /rotate can destroy them — in rotate
+//  mode the pool assigns an IP per NEW connection, and the browser
+//  reuses its open tunnels (keep-alive), which pins the old IP. Dropping
+//  the tunnels forces the browser to open fresh connections → fresh IPs.
+const activeTunnels = new Set();
+
 function handleConnect(req, clientSocket, head) {
   const target = req.url; // "host:port"
   if (!target || !/^[a-zA-Z0-9.\-]+:\d+$/.test(target)) {
@@ -94,6 +100,15 @@ function handleConnect(req, clientSocket, head) {
   const upstream = net.connect(config.gatewayPort || 80, config.gateway);
   let responded = false;
   let buffer = Buffer.alloc(0);
+
+  activeTunnels.add(clientSocket);
+  activeTunnels.add(upstream);
+  const untrack = () => {
+    activeTunnels.delete(clientSocket);
+    activeTunnels.delete(upstream);
+  };
+  clientSocket.on('close', untrack);
+  upstream.on('close', untrack);
 
   upstream.on('connect', () => {
     upstream.write(
@@ -140,9 +155,17 @@ function handleRequest(req, res) {
   // Control endpoints
   if (req.method === 'POST' && req.url === '/rotate') {
     sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    // Destroy all live tunnels: the NEXT connection must be brand new,
+    // so the proxy pool assigns a fresh IP (the actual IP change in
+    // rotate mode). The browser transparently reconnects.
+    const closed = activeTunnels.size;
+    for (const s of activeTunnels) {
+      try { s.destroy(); } catch (_) {}
+    }
+    activeTunnels.clear();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, mode: MODE, username: proxyUsername() }));
-    log('↻ rotated → ' + proxyUsername());
+    res.end(JSON.stringify({ ok: true, mode: MODE, username: proxyUsername(), closedTunnels: closed }));
+    log('↻ rotated → ' + proxyUsername() + (closed ? ' (closed ' + closed + ' tunnel(s))' : ''));
     return;
   }
   if (req.url === '/status') {

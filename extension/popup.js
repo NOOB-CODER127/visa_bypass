@@ -12,6 +12,7 @@ const vpnConfig = document.getElementById('vpnConfig');
 const vpnHost = document.getElementById('vpnHost');
 const vpnPort = document.getElementById('vpnPort');
 const vpnSaveBtn = document.getElementById('vpnSaveBtn');
+const vpnRotateBtn = document.getElementById('vpnRotateBtn');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const licenseBadge = document.getElementById('licenseBadge');
@@ -140,6 +141,18 @@ vpnSaveBtn.addEventListener('click', () => {
       }
     }
   );
+});
+
+vpnRotateBtn.addEventListener('click', () => {
+  vpnRotateBtn.disabled = true;
+  vpnRotateBtn.textContent = '↻ Rotating IP...';
+  chrome.runtime.sendMessage({ type: 'VISA_CHANGE_IP' });
+  setTimeout(() => {
+    vpnRotateBtn.disabled = false;
+    vpnRotateBtn.textContent = '🔄 Change IP (reloads visa tabs)';
+    vpnNote.textContent = '✓ Rotated — visa tabs reloaded on a fresh IP.';
+    vpnNote.style.color = '#16a34a';
+  }, 2500);
 });
 
 function updateVpnUI(enabled) {
