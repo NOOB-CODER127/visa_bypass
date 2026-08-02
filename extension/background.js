@@ -111,8 +111,9 @@ function notifyLogout() {
 //  for a sticky IP) + password. IP rotation happens via the WebShare
 //  session duration setting.
 
-const DEFAULT_VPN_HOST = 'p.webshare.io';
-const DEFAULT_VPN_PORT = '80';
+// Recommended default: the local rotation bridge (no login dialog).
+const DEFAULT_VPN_HOST = '127.0.0.1';
+const DEFAULT_VPN_PORT = '8787';
 
 // Local rotation bridge (local-bridge.js) — Chrome talks to localhost
 // so no proxy login dialog is needed; the bridge does the WebShare auth
