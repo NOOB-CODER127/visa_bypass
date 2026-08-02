@@ -2,6 +2,7 @@
 
 ## What This Fixes
 
+
 Based on the official technical report:
 > The calendar endpoint `POST /api/v1/.../get-family-ofc-schedule-days` returns  
 > **HTTP 403 Forbidden + `cf-mitigated: challenge`** (Cloudflare) every ~7 minutes.  
