@@ -146,13 +146,17 @@ vpnSaveBtn.addEventListener('click', () => {
 vpnRotateBtn.addEventListener('click', () => {
   vpnRotateBtn.disabled = true;
   vpnRotateBtn.textContent = '↻ Rotating IP...';
-  chrome.runtime.sendMessage({ type: 'VISA_CHANGE_IP' });
-  setTimeout(() => {
+  chrome.runtime.sendMessage({ type: 'VISA_CHANGE_IP' }, (resp) => {
     vpnRotateBtn.disabled = false;
     vpnRotateBtn.textContent = '🔄 Change IP (reloads visa tabs)';
-    vpnNote.textContent = '✓ Rotated — visa tabs reloaded on a fresh IP.';
-    vpnNote.style.color = '#16a34a';
-  }, 2500);
+    if (resp && resp.ok) {
+      vpnNote.textContent = '✓ Rotated — visa tabs reloaded on a fresh IP.';
+      vpnNote.style.color = '#16a34a';
+    } else {
+      vpnNote.textContent = '⚠ Bridge not running — start local-bridge.js first.';
+      vpnNote.style.color = '#b45309';
+    }
+  });
 });
 
 function updateVpnUI(enabled) {

@@ -129,8 +129,9 @@ async function notifyBridgeRotate() {
     await fetch('http://' + LOCAL_BRIDGE_HOST + ':' + LOCAL_BRIDGE_PORT + '/rotate', {
       method: 'POST',
     });
+    return true;
   } catch (_) {
-    // Bridge not running — nothing to rotate.
+    return false; // Bridge not running — nothing to rotate.
   }
 }
 
@@ -321,14 +322,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Manual "Change IP" from the popup: rotate the bridge (drops its
     // tunnels so the browser must open fresh connections → fresh IPs),
     // then reload every visa tab so they all re-connect on a new IP.
+    // Reports whether the bridge was actually reached.
     (async () => {
-      await notifyBridgeRotate();
+      const rotated = await notifyBridgeRotate();
       await new Promise((r) => setTimeout(r, 600));
       const tabs = await chrome.tabs.query({ url: '*://*.usvisascheduling.com/*' });
       for (const t of tabs) {
         if (t.id) chrome.tabs.reload(t.id).catch(() => {});
       }
+      sendResponse({ ok: rotated });
     })();
+    return true; // async response
   }
 
   if (message.type === 'VISA_CF_BLOCK_PAGE') {
