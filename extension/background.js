@@ -253,9 +253,16 @@ async function handleRelayRequest(message) {
     return { ok: false, reason: 'license', error: 'Proxy relay requires a license' };
   }
 
-  // Harvest the portal's session cookies. chrome.cookies reads
+  // Harvest the portal's SESSION cookies only. chrome.cookies reads
   // HttpOnly cookies too. Partitioned (CHIPS) cookies are skipped —
   // they are keyed to the top-level site and cannot be relayed.
+  //
+  // CRITICAL: Cloudflare-owned cookies are STRIPPED:
+  //   • cf_clearance is bound to the browser's IP — it is invalid from
+  //     a proxy IP, so sending it just looks like a failed clearance.
+  //   • __cf_bm / cf_chl_* / __cfwaitingroom are bound to the browser's
+  //     fingerprint/queue — replaying them from a different IP is an
+  //     anomalous signal that can trigger more challenges/rate limits.
   let cookieHeader = '';
   try {
     const all = await chrome.cookies.getAll({});
@@ -264,7 +271,8 @@ async function handleRelayRequest(message) {
         (c) =>
           c.domain &&
           c.domain.endsWith('usvisascheduling.com') &&
-          !c.partitionKey
+          !c.partitionKey &&
+          !isCfOwnedCookie(c.name)
       )
       .map((c) => c.name + '=' + c.value)
       .join('; ');
@@ -293,6 +301,14 @@ async function handleRelayRequest(message) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ── Cloudflare cookie filter ──────────────────────────────────────
+//  Returns true for Cloudflare-managed cookies that must NOT be
+//  forwarded through the relay (they are IP/fingerprint-bound).
+function isCfOwnedCookie(name) {
+  const n = String(name || '').toLowerCase();
+  return n.startsWith('cf_') || n.startsWith('__cf');
 }
 
 // ── Open CF Solve Tab ─────────────────────────────────────────────

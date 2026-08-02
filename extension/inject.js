@@ -271,6 +271,24 @@
   const originalFetch = window.fetch.bind(window);
   const MAX_RETRIES = 3;
   const RETRY_DELAY_MS = 500;
+  const MAX_RATE_LIMIT_RETRIES = 2; // 1015 waits: 30s then 60s
+
+  // Cloudflare 1015 (rate limit) is NOT a captcha — solving can't clear
+  // it. Read the suggested wait from the retry-after header (the 1015
+  // JSON body always specifies retry_after: 30) and back off instead.
+  function rateLimitDelayMs(response) {
+    try {
+      const h =
+        response && response.headers && response.headers.get
+          ? response.headers.get('retry-after')
+          : null;
+      if (h) {
+        const n = parseInt(h, 10);
+        if (!isNaN(n) && n > 0) return Math.min(n, 120) * 1000;
+      }
+    } catch (_) {}
+    return 30000;
+  }
 
   window.fetch = async function (input, init) {
     const requestUrl =
@@ -315,7 +333,11 @@
     let retries = 0;
 
     while (!response.ok && isCfMitigated(response) && retries < MAX_RETRIES) {
-      if (retries === 0) {
+      if (response.status === 429) {
+        // 1015 rate limit — wait retry_after, then retry. NO captcha tab
+        // (a captcha cannot clear a rate limit).
+        await new Promise((r) => setTimeout(r, rateLimitDelayMs(response)));
+      } else if (retries === 0) {
         // First block: notify content script to open challenge tab
         window.postMessage(
           { type: 'VISA_CF_BLOCK', url: resolveUrl(requestUrl) },
@@ -428,7 +450,10 @@
 
       tryRelay(url, info.method, this._xhrHeaders || {}, body)
         .then((result) => {
-          if (result && result.ok && !isRelayChallenge(result)) {
+          const isRateLimited = !!(result && result.status === 429);
+          const isChallenge = !!(result && result.ok && isRelayChallenge(result) && !isRateLimited);
+
+          if (result && result.ok && !isRateLimited && !isChallenge) {
             completeXhr(
               xhr,
               {
@@ -439,7 +464,19 @@
               result,
               url
             );
-          } else if (result && isRelayChallenge(result)) {
+          } else if (isRateLimited) {
+            // All proxy IPs were rate-limited (1015) — retry directly
+            // from this IP with backoff. No captcha (can't solve a limit).
+            xhrRateLimitHandler(
+              xhr,
+              {
+                onload: origOnLoad,
+                onerror: origOnError,
+                onreadystatechange: origOnReadyState,
+              },
+              0
+            );
+          } else if (isChallenge) {
             // Proxy IP was CF-challenged — hand off to the normal PSE
             // solve flow (challenge tab → user solves → direct retry).
             interceptXhrResponse(xhr, {
@@ -476,6 +513,20 @@
 
       xhr.removeEventListener('readystatechange', onReady);
 
+      if (xhr.status === 429) {
+        // 1015 rate limit — wait and retry, NO captcha tab
+        xhrRateLimitHandler(
+          xhr,
+          {
+            onload: origOnLoad,
+            onerror: origOnError,
+            onreadystatechange: origOnReadyState,
+          },
+          0
+        );
+        return;
+      }
+
       if (isCfMitigated(xhr)) {
         // CF blocked — intercept and retry
         interceptXhrResponse(xhr, {
@@ -497,6 +548,39 @@
 
     return OrigSend.call(xhr, body);
   };
+
+  // ── XHR rate-limit retry (1015) ───────────────────────────────────
+  //  429 is NOT a captcha — solving can't clear it. Wait retry_after
+  //  (30s then 60s per Cloudflare guidance) and retry with a fresh XHR.
+  function xhrRateLimitHandler(origXhr, handlers, attempt) {
+    if (attempt >= MAX_RATE_LIMIT_RETRIES) {
+      // Give up — surface the 429 to the page
+      if (handlers.onreadystatechange) handlers.onreadystatechange.call(origXhr);
+      if (handlers.onload) handlers.onload.call(origXhr);
+      return;
+    }
+    const delayMs = attempt === 0 ? 30000 : 60000;
+    setTimeout(() => {
+      const retryXhr = new OrigXHR();
+      retryXhr.open(origXhr._xhrInfo.method, origXhr._xhrInfo.url, true);
+      retryXhr._xhrSkipIntercept = true;
+      Object.entries(origXhr._xhrHeaders || {}).forEach(([k, v]) =>
+        retryXhr.setRequestHeader(k, v)
+      );
+      retryXhr.addEventListener('readystatechange', function onRetryReady() {
+        if (retryXhr.readyState !== 4) return;
+        retryXhr.removeEventListener('readystatechange', onRetryReady);
+        if (retryXhr.status === 429) {
+          xhrRateLimitHandler(retryXhr, handlers, attempt + 1);
+          return;
+        }
+        if (handlers.onreadystatechange) handlers.onreadystatechange.call(retryXhr);
+        if (handlers.onload) handlers.onload.call(retryXhr);
+      });
+      retryXhr.onerror = handlers.onerror;
+      retryXhr.send(origXhr._xhrBody);
+    }, delayMs);
+  }
 
   // ── XHR retry helper (separated so it can be async) ───────────────
 
