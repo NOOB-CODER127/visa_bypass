@@ -18,7 +18,9 @@
     "*://localhost:3000/*",
     "http://127.0.0.1:8787/*",
     "http://*:8787/*",
-    "https://*:8787/*"
+    "https://*:8787/*",
+    "http://*:3000/*",
+    "https://*:3000/*"
   ],
   "background": {
     "service_worker": "background.js"

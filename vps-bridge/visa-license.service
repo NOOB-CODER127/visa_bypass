@@ -1,0 +1,17 @@
+[Unit]
+Description=Visa Bypass license server + admin panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/visa-license
+ExecStart=/usr/bin/node /opt/visa-license/index.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# Set this to a strong value:
+Environment=ADMIN_PASSWORD=Xsi-GHy7_yKG
+
+[Install]
+WantedBy=multi-user.target
