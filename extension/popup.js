@@ -85,7 +85,11 @@ relayToggle.addEventListener('change', () => {
 });
 
 function updateRelayUI(enabled, licensed) {
-  if (enabled && !licensed) {
+  if (enabled && vpnToggle.checked) {
+    relayNote.textContent =
+      '⚠ Superseded by IP Rotation (Software VPN) — turn this relay OFF.';
+    relayNote.style.color = '#b45309';
+  } else if (enabled && !licensed) {
     relayNote.textContent =
       '⚠ License required — activate a license to use the rotating IP relay.';
     relayNote.style.color = '#b45309';
@@ -124,10 +128,16 @@ vpnSaveBtn.addEventListener('click', () => {
       host: vpnHost.value.trim(),
       port: vpnPort.value.trim(),
     },
-    () => {
-      vpnNote.textContent = '✓ Proxy settings saved.';
-      vpnNote.style.color = '#16a34a';
-      setTimeout(() => updateVpnUI(vpnToggle.checked), 1500);
+    (resp) => {
+      if (resp && resp.ok) {
+        vpnNote.textContent = '✓ Proxy settings saved.';
+        vpnNote.style.color = '#16a34a';
+        setTimeout(() => updateVpnUI(vpnToggle.checked), 1500);
+      } else {
+        vpnNote.textContent =
+          '⚠ ' + ((resp && resp.error) || 'Could not save settings.');
+        vpnNote.style.color = '#b45309';
+      }
     }
   );
 });

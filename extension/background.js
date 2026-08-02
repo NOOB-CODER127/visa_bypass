@@ -276,11 +276,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       const host = String(message.host || '').trim();
       const port = String(message.port || '80').trim();
+      // Sanitize — the PAC script is evaluated as JS, so host/port must
+      // be strictly constrained to avoid script injection.
+      if (!/^[a-zA-Z0-9.\-]+$/.test(host) || !/^\d+$/.test(port)) {
+        sendResponse({ ok: false, error: 'Invalid host or port' });
+        return;
+      }
       await chrome.storage.local.set({ vpnHost: host, vpnPort: port });
       // If the VPN is currently ON, re-apply with the new settings
       const st = await chrome.storage.local.get(['vpn']);
-      if (st.vpn === true) await applyBrowserProxy(true);
-      sendResponse({ ok: true });
+      let reapplyOk = true;
+      if (st.vpn === true) reapplyOk = await applyBrowserProxy(true);
+      sendResponse({ ok: reapplyOk });
     })();
     return true; // async response
   }
