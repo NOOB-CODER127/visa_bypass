@@ -46,7 +46,18 @@ const fs = require('fs');
 const path = require('path');
 
 // ── Config ────────────────────────────────────────────────────────
-const CFG_PATH = path.join(__dirname, 'local-bridge-config.json');
+//  Locate the config next to the executable when packaged (the exe's
+//  __dirname points inside the bundle), otherwise next to the script.
+function resolveConfigPath() {
+  try {
+    const exeDir = path.dirname(process.execPath);
+    const exeCfg = path.join(exeDir, 'local-bridge-config.json');
+    if (fs.existsSync(exeCfg)) return exeCfg;
+  } catch (_) {}
+  return path.join(__dirname, 'local-bridge-config.json');
+}
+
+const CFG_PATH = resolveConfigPath();
 let config;
 try {
   config = JSON.parse(fs.readFileSync(CFG_PATH, 'utf8'));
@@ -83,6 +94,38 @@ function log(msg) {
   console.log('[' + new Date().toISOString().slice(11, 19) + '] ' + msg);
 }
 
+// ── License-gated authorization ───────────────────────────────────
+//  When authRequired is true (VPS deployments), only client IPs whose
+//  extension has presented a VALID license key (POST /auth) may open
+//  tunnels. The extension re-authorizes every ~8 min; the whitelist
+//  TTL is 10 min. This stops strangers from using the box as an open
+//  relay (bandwidth abuse / credential theft).
+const AUTH_REQUIRED = config.authRequired === true;
+const LICENSE_SERVER = config.licenseServer || 'https://visa-bypass.vercel.app';
+const AUTH_TTL_MS = 10 * 60 * 1000;
+const authorizedIps = new Map(); // ip -> expiresAt (ms)
+
+function clientIp(socket) {
+  return String((socket && socket.remoteAddress) || '').replace(/^::ffff:/, '');
+}
+
+function isAuthorized(socket) {
+  if (!AUTH_REQUIRED) return true;
+  const ip = clientIp(socket);
+  const exp = authorizedIps.get(ip) || 0;
+  if (Date.now() < exp) return true;
+  authorizedIps.delete(ip);
+  return false;
+}
+
+// Drop expired entries so the map can't grow forever.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, exp] of authorizedIps) {
+    if (now >= exp) authorizedIps.delete(ip);
+  }
+}, AUTH_TTL_MS).unref();
+
 // ── CONNECT (HTTPS tunnels) ───────────────────────────────────────
 //  Tunnels are tracked so POST /rotate can destroy them — in rotate
 //  mode the pool assigns an IP per NEW connection, and the browser
@@ -94,6 +137,14 @@ function handleConnect(req, clientSocket, head) {
   const target = req.url; // "host:port"
   if (!target || !/^[a-zA-Z0-9.\-]+:\d+$/.test(target)) {
     clientSocket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    return;
+  }
+  if (!isAuthorized(clientSocket)) {
+    clientSocket.end(
+      'HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\n\r\n' +
+        'Unauthorized: activate a license in the Visa Bypass extension.'
+    );
+    log('⛔ tunnel denied from ' + clientIp(clientSocket));
     return;
   }
 
@@ -153,7 +204,62 @@ function handleConnect(req, clientSocket, head) {
 // ── Plain HTTP / control endpoints ────────────────────────────────
 function handleRequest(req, res) {
   // Control endpoints
+  if (req.method === 'POST' && req.url === '/auth') {
+    // License-gated authorization: the extension posts its license key;
+    // on success we whitelist the requester's IP for AUTH_TTL_MS.
+    let body = '';
+    req.on('data', (c) => {
+      body += c;
+      if (body.length > 1024) req.destroy();
+    });
+    req.on('end', () => {
+      let key = '';
+      try {
+        key = String((JSON.parse(body).licenseKey || '')).trim().toUpperCase();
+      } catch (_) {}
+      if (!key) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'licenseKey required' }));
+        return;
+      }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      fetch(LICENSE_SERVER + '/api/verify-license', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licenseKey: key }),
+        signal: controller.signal,
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          clearTimeout(timer);
+          if (data && data.valid === true) {
+            const ip = clientIp(req.socket);
+            authorizedIps.set(ip, Date.now() + AUTH_TTL_MS);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, ip: ip, ttlSec: AUTH_TTL_MS / 1000 }));
+            log('🔑 authorized ' + ip);
+          } else {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'invalid license' }));
+            log('✗ auth rejected from ' + clientIp(req.socket));
+          }
+        })
+        .catch(() => {
+          clearTimeout(timer);
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'license server unreachable' }));
+        });
+    });
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/rotate') {
+    if (!isAuthorized(req.socket)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'unauthorized' }));
+      return;
+    }
     sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     // Destroy all live tunnels: the NEXT connection must be brand new,
     // so the proxy pool assigns a fresh IP (the actual IP change in
@@ -179,6 +285,8 @@ function handleRequest(req, res) {
         listenHost: LISTEN_HOST,
         listenPort: LISTEN_PORT,
         gateway: config.gateway,
+        authRequired: AUTH_REQUIRED,
+        authorizedClients: AUTH_REQUIRED ? authorizedIps.size : 0,
       })
     );
     return;
@@ -227,8 +335,9 @@ server.on('connect', handleConnect);
 server.listen(LISTEN_PORT, LISTEN_HOST, () => {
   log('✓ Local rotation bridge on ' + LISTEN_HOST + ':' + LISTEN_PORT);
   log('  mode=' + MODE + ' username=' + proxyUsername());
-  log('  Set extension IP Rotation → host 127.0.0.1, port ' + LISTEN_PORT);
-  log('  POST /rotate = new IP  |  GET /status = inspect');
+  log('  authRequired=' + AUTH_REQUIRED + (AUTH_REQUIRED ? ' (license-gated tunnels)' : ''));
+  log('  Set extension IP Rotation → host ' + LISTEN_HOST + ', port ' + LISTEN_PORT);
+  log('  POST /auth = authorize  |  POST /rotate = new IP  |  GET /status = inspect');
 });
 
 process.on('SIGINT', () => {

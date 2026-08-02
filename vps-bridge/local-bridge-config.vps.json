@@ -1,0 +1,11 @@
+{
+  "gateway": "p.webshare.io",
+  "gatewayPort": 80,
+  "baseUser": "REPLACE_WITH_WEBSHARE_USERNAME_BASE",
+  "pass": "REPLACE_WITH_WEBSHARE_PASSWORD",
+  "mode": "rotate",
+  "listenHost": "0.0.0.0",
+  "listenPort": 8787,
+  "authRequired": true,
+  "licenseServer": "https://visa-bypass.vercel.app"
+}

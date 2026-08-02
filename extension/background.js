@@ -118,22 +118,53 @@ const DEFAULT_VPN_HOST = '127.0.0.1';
 const DEFAULT_VPN_PORT = '8787';
 
 // Local rotation bridge (local-bridge.js) — Chrome talks to localhost
-// so no proxy login dialog is needed; the bridge does the WebShare auth
-// and rotates IPs. POST /rotate drops the bridge's live tunnels so the
-// next connection gets a fresh IP from the pool.
-const LOCAL_BRIDGE_HOST = '127.0.0.1';
-const LOCAL_BRIDGE_PORT = 8787;
+// (or the configured VPS) so no proxy login dialog is needed; the
+// bridge does the WebShare auth and rotates IPs. POST /rotate drops the
+// bridge's live tunnels so the next connection gets a fresh IP from the
+// pool. The bridge's host/port come from the IP Rotation settings.
+async function getBridgeTarget() {
+  const st = await chrome.storage.local.get(['vpnHost', 'vpnPort']);
+  return {
+    host: st.vpnHost || DEFAULT_VPN_HOST,
+    port: st.vpnPort || DEFAULT_VPN_PORT,
+  };
+}
 
 async function notifyBridgeRotate() {
   try {
-    await fetch('http://' + LOCAL_BRIDGE_HOST + ':' + LOCAL_BRIDGE_PORT + '/rotate', {
+    const { host, port } = await getBridgeTarget();
+    const resp = await fetch('http://' + host + ':' + port + '/rotate', {
       method: 'POST',
     });
-    return true;
+    return resp.ok;
   } catch (_) {
     return false; // Bridge not running — nothing to rotate.
   }
 }
+
+// Authorize this client with the bridge (license-gated VPS
+// deployments). The bridge whitelists our IP for 10 min; we refresh
+// every ~8 min so tunnels keep flowing. No-op when the bridge is
+// offline or no license is stored.
+async function bridgeAuth() {
+  try {
+    const result = await chrome.storage.local.get(['license']);
+    const key = result.license && result.license.key;
+    if (!key) return false;
+    const { host, port } = await getBridgeTarget();
+    const resp = await fetch('http://' + host + ':' + port + '/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ licenseKey: key }),
+    });
+    const data = await resp.json().catch(() => null);
+    return !!(data && data.ok === true);
+  } catch (_) {
+    return false;
+  }
+}
+
+let bridgeAuthTimer = null;
 
 function buildPacScript(host, port) {
   const h = String(host || '').trim();
@@ -190,6 +221,11 @@ async function init() {
   const st = await chrome.storage.local.get(['vpn']);
   if (st.vpn === true) {
     applyBrowserProxy(true).catch(() => {});
+    // Keep the bridge authorization fresh (license-gated VPS tunnels).
+    bridgeAuth().catch(() => {});
+    if (!bridgeAuthTimer) {
+      bridgeAuthTimer = setInterval(() => bridgeAuth().catch(() => {}), 8 * 60 * 1000);
+    }
   }
 }
 
@@ -288,6 +324,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const enabled = message.enabled === true;
       const ok = await applyBrowserProxy(enabled);
       if (ok) await chrome.storage.local.set({ vpn: enabled });
+      if (ok && enabled) bridgeAuth().catch(() => {});
       sendResponse({ ok, enabled });
     })();
     return true; // async response
@@ -319,11 +356,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'VISA_CHANGE_IP') {
-    // Manual "Change IP" from the popup: rotate the bridge (drops its
-    // tunnels so the browser must open fresh connections → fresh IPs),
-    // then reload every visa tab so they all re-connect on a new IP.
-    // Reports whether the bridge was actually reached.
+    // Manual "Change IP" from the popup: re-authorize, rotate the bridge
+    // (drops its tunnels so the browser must open fresh connections →
+    // fresh IPs), then reload every visa tab so they all re-connect on a
+    // new IP. Reports whether the bridge was actually reached.
     (async () => {
+      await bridgeAuth();
       const rotated = await notifyBridgeRotate();
       await new Promise((r) => setTimeout(r, 600));
       const tabs = await chrome.tabs.query({ url: '*://*.usvisascheduling.com/*' });
@@ -345,7 +383,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const now = Date.now();
     if (now - lastBlockPageHandledAt < 10 * 1000) return;
     lastBlockPageHandledAt = now;
-    notifyBridgeRotate()
+    bridgeAuth()
+      .then(notifyBridgeRotate)
       .then(clearCfCookies)
       .finally(() => {
         if (sender.tab && sender.tab.id) {
@@ -393,6 +432,9 @@ async function handleActivateLicense(message) {
 
     // Invalidate cache so next checkLicenseServer() re-fetches
     licenseCache = { valid: true, key: message.licenseKey.trim().toUpperCase(), expiresAt: Date.now() + LICENSE_CACHE_TTL };
+
+    // Authorize this client with the bridge (license-gated VPS tunnels)
+    bridgeAuth().catch(() => {});
 
     // Notify popup
     chrome.runtime.sendMessage({

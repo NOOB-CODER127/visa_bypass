@@ -1,0 +1,82 @@
+══════════════════════════════════════════════════════════════
+  VISA BYPASS — SETUP GUIDE (5 minutes, one time)
+══════════════════════════════════════════════════════════════
+
+You only do this ONCE. After that it just works.
+
+──────────────────────────────────────────────────────────────
+STEP 1 — Install the extension (2 minutes)
+──────────────────────────────────────────────────────────────
+1. Unzip the file "visa-bypass-obfuscated.zip" into a folder.
+   (Right-click the zip → Extract All. Remember where it goes —
+   e.g. C:\visa-bypass\  — do NOT delete this folder afterwards.)
+
+2. Open Chrome and type this into the address bar, then press Enter:
+
+     chrome://extensions
+
+3. At the top-right of that page, turn ON the switch that says
+   "Developer mode".
+
+4. Click the button "Load unpacked" (top-left).
+
+5. In the window that opens, select the folder you extracted in
+   step 1 (the one that contains manifest.json), then click
+   "Select Folder".
+
+6. You should now see "Visa Bypass — PSE0501 Blocker" in the list.
+   Pin it next to the address bar by clicking the puzzle icon
+   and then the pin next to Visa Bypass.
+
+──────────────────────────────────────────────────────────────
+STEP 2 — Turn on IP Rotation (1 minute)
+──────────────────────────────────────────────────────────────
+1. Click the Visa Bypass icon (next to your address bar).
+
+2. Turn ON the switch labelled "IP Rotation (Software VPN)".
+
+3. Enter these two values (your provider will give you the exact
+   ones):
+
+       Host:  proxy.YOURSERVER.com        (or the IP)
+       Port:  8787
+
+4. Click "Save".
+
+──────────────────────────────────────────────────────────────
+STEP 3 — Activate your license (1 minute)
+──────────────────────────────────────────────────────────────
+1. In the same popup, type your license key into the box, e.g.:
+
+       VISA-XXXX-XXXX-XXXX
+
+2. Click "Activate". It should turn green and say "Licensed ✓".
+
+3. Keep "Enable Blocking" and "Keep Session Alive" switched ON.
+
+──────────────────────────────────────────────────────────────
+Done! Now just use the visa site normally.
+──────────────────────────────────────────────────────────────
+• If the calendar ever shows the Cloudflare block page, click the
+  Visa Bypass icon → "🔄 Change IP" — the page reloads on a new IP
+  automatically.
+
+• If you ever need to restart your computer: nothing to do. The
+  extension works whenever Chrome is open.
+
+• Do NOT remove the extension folder (from Step 1) or clear all
+  browser data — that would uninstall the extension.
+
+──────────────────────────────────────────────────────────────
+TROUBLESHOOTING
+──────────────────────────────────────────────────────────────
+• "License required" / site won't load → open the popup, make sure
+  IP Rotation is ON and the Host/Port are correct, and your license
+  shows green.
+
+• Extension disappeared → reopen chrome://extensions, Developer
+  mode ON, click "Load unpacked", select the folder again.
+
+• Need help? Contact your provider and tell them: "the site shows
+  the block page / 1015 error" — they'll fix it on their end.
+══════════════════════════════════════════════════════════════
