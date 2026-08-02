@@ -135,12 +135,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'VISA_GET_STATUS') {
     (async () => {
+      // Verify the license FIRST (network call, can take 1-2s), then
+      // read the toggle states AFTER — so the VISA_STATUS response always
+      // reflects the CURRENT storage, not a stale snapshot. Reading
+      // storage before the await let the user's toggle changes race with
+      // the delayed response, snapping toggles (e.g. Proxy Relay) back OFF.
+      const isValid = await checkLicenseServer();
       const [enabledResult, keepAliveResult, relayResult] = await Promise.all([
         chrome.storage.local.get(['enabled']),
         chrome.storage.local.get(['keepAlive']),
         chrome.storage.local.get(['relay']),
       ]);
-      const isValid = await checkLicenseServer();
       chrome.runtime.sendMessage({
         type: 'VISA_STATUS',
         enabled: enabledResult.enabled !== false,
