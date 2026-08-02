@@ -29,6 +29,7 @@ const ALLOWED_HOSTS = ['usvisascheduling.com'];
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MB response cap
 const REQUEST_TIMEOUT_MS = 12000; // upstream request timeout
 const RATE_LIMIT_PER_MIN = 120; // per license key
+const MAX_ATTEMPTS = 3; // initial + 2 fresh-IP retries on CF challenge
 
 // ── In-memory rate buckets (per license) ─────────────────────────
 const rateBuckets = new Map();
@@ -73,6 +74,36 @@ function isAllowedTarget(url) {
   return ALLOWED_HOSTS.some(
     (h) => parsed.hostname === h || parsed.hostname.endsWith('.' + h)
   );
+}
+
+// ── Cloudflare challenge / rate-limit detector ────────────────────
+//  Used to decide whether to rotate to a fresh proxy IP and retry.
+function isCfChallenge(status, headers, bodyText) {
+  if (status === 429) return true; // CF rate limit (1015) — new IP should fix
+  if (status === 403) {
+    const get = (k) =>
+      String(
+        (headers && (headers[k] || headers[k.toLowerCase()])) || ''
+      ).toLowerCase();
+    const mitigated = get('cf-mitigated');
+    const server = get('server');
+    const contentType = get('content-type');
+    if (mitigated === 'challenge') return true;
+    if (server === 'cloudflare') return true;
+    if (contentType.includes('text/html')) return true;
+    const lower = String(bodyText || '').toLowerCase();
+    if (
+      lower.includes('just a moment') ||
+      lower.includes('cf-challenge') ||
+      lower.includes('challenge-platform') ||
+      lower.includes('cf-turnstile')
+    ) {
+      return true;
+    }
+    // 403 on these API endpoints is almost always Cloudflare
+    return true;
+  }
+  return false;
 }
 
 // ── Handler ───────────────────────────────────────────────────────
@@ -147,51 +178,69 @@ module.exports = async (req, res) => {
     upstreamHeaders['User-Agent'] ||
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.127 Safari/537.36';
 
-  const dispatcher = new ProxyAgent(uri);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  // 7. Fire the request through the rotating proxy. Each attempt uses a
+  //    FRESH ProxyAgent (fresh connection) so a rotating gateway assigns
+  //    a new residential IP — if this IP is CF-challenged/rate-limited,
+  //    we rotate and retry instead of failing the request.
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const attemptAgent = new ProxyAgent(uri);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  try {
-    const upstream = await fetch(url, {
-      method,
-      headers: upstreamHeaders,
-      body: method === 'GET' || method === 'HEAD' ? undefined : body || undefined,
-      redirect: 'manual',
-      signal: controller.signal,
-      dispatcher,
-    });
-
-    const buffer = Buffer.from(await upstream.arrayBuffer());
-    if (buffer.length > MAX_BODY_BYTES) {
-      return res.status(413).json({ ok: false, reason: 'large', error: 'Response too large' });
-    }
-
-    const respHeaders = {};
-    upstream.headers.forEach((v, k) => {
-      respHeaders[k] = v;
-    });
-
-    return res.json({
-      ok: true,
-      status: upstream.status,
-      statusText: upstream.statusText || '',
-      headers: respHeaders,
-      body: buffer.toString('utf-8'),
-    });
-  } catch (err) {
-    console.error('proxy-request upstream error:', err);
-    return res.status(502).json({
-      ok: false,
-      reason: 'upstream',
-      error: String((err && err.message) || err),
-    });
-  } finally {
-    clearTimeout(timer);
     try {
-      dispatcher.close();
-    } catch (_) {}
+      const upstream = await fetch(url, {
+        method,
+        headers: upstreamHeaders,
+        body: method === 'GET' || method === 'HEAD' ? undefined : body || undefined,
+        redirect: 'manual',
+        signal: controller.signal,
+        dispatcher: attemptAgent,
+      });
+
+      const buffer = Buffer.from(await upstream.arrayBuffer());
+      if (buffer.length > MAX_BODY_BYTES) {
+        return res.status(413).json({ ok: false, reason: 'large', error: 'Response too large' });
+      }
+
+      const respHeaders = {};
+      upstream.headers.forEach((v, k) => {
+        respHeaders[k] = v;
+      });
+      const bodyText = buffer.toString('utf-8');
+
+      // Still challenged/rate-limited and we have attempts left → rotate
+      if (attempt < MAX_ATTEMPTS && isCfChallenge(upstream.status, respHeaders, bodyText)) {
+        continue;
+      }
+
+      return res.json({
+        ok: true,
+        status: upstream.status,
+        statusText: upstream.statusText || '',
+        headers: respHeaders,
+        body: bodyText,
+      });
+    } catch (err) {
+      if (attempt === MAX_ATTEMPTS) {
+        console.error('proxy-request upstream error:', err);
+        return res.status(502).json({
+          ok: false,
+          reason: 'upstream',
+          error: String((err && err.message) || err),
+        });
+      }
+      // Network error — rotate to a fresh IP and retry
+    } finally {
+      clearTimeout(timer);
+      try {
+        attemptAgent.close();
+      } catch (_) {}
+    }
   }
 };
 
 // Allow the proxied round-trip more than the default 10s budget
 module.exports.config = { maxDuration: 30 };
+
+// Exposed for tests
+module.exports.isCfChallenge = isCfChallenge;

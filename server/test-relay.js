@@ -84,6 +84,17 @@ function call(body) {
     check('non-default port rejected', r4.body.reason === 'url');
   }
 
+  console.log('Test 7: isCfChallenge detector');
+  {
+    const { isCfChallenge } = handler;
+    check('429 is challenge', isCfChallenge(429, {}, '') === true);
+    check('403 with cf-mitigated', isCfChallenge(403, { 'cf-mitigated': 'challenge' }, '') === true);
+    check('403 with server cloudflare', isCfChallenge(403, { server: 'cloudflare' }, '') === true);
+    check('403 with html body', isCfChallenge(403, { 'content-type': 'text/html' }, '<html>Just a moment...</html>') === true);
+    check('403 bare is treated as challenge', isCfChallenge(403, {}, '') === true);
+    check('200 JSON is not challenge', isCfChallenge(200, { 'content-type': 'application/json' }, '{"ok":true}') === false);
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);
 })();

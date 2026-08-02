@@ -145,6 +145,34 @@
     }
   }
 
+  // True when a relayed response is a Cloudflare challenge / rate
+  // limit — meaning the proxy IP was blocked. In that case the
+  // request should fall back to the normal PSE solve flow instead of
+  // surfacing a PSE0501 error.
+  function isRelayChallenge(result) {
+    if (!result) return false;
+    if (result.status === 429) return true;
+    if (result.status === 403) {
+      const h = result.headers || {};
+      let mitigated = '';
+      let server = '';
+      let contentType = '';
+      for (const k in h) {
+        const lk = k.toLowerCase();
+        const v = String(h[k]).toLowerCase();
+        if (lk === 'cf-mitigated') mitigated = v;
+        else if (lk === 'server') server = v;
+        else if (lk === 'content-type') contentType = v;
+      }
+      if (mitigated === 'challenge') return true;
+      if (server === 'cloudflare') return true;
+      if (contentType.includes('text/html')) return true;
+      // 403 on these API endpoints is almost always Cloudflare
+      return true;
+    }
+    return false;
+  }
+
   function tryRelay(url, method, headers, body) {
     return new Promise((resolve) => {
       const requestId =
@@ -261,7 +289,7 @@
     if (relayEnabled) {
       const info = await extractFetchInfo(input, init);
       const relayed = await tryRelay(info.url, info.method, info.headers, info.body);
-      if (relayed && relayed.ok) {
+      if (relayed && relayed.ok && !isRelayChallenge(relayed)) {
         const respHeaders = new Headers();
         if (relayed.headers) {
           for (const k in relayed.headers) {
@@ -278,8 +306,9 @@
           headers: respHeaders,
         });
       }
-      // Relay unavailable (no license / server down / timeout) — fall
-      // through to the normal direct flow.
+      // Relay unavailable (no license / server down / timeout) OR the
+      // proxy IP was CF-challenged — fall through to the normal direct
+      // flow. The PSE solve flow (VISA_CF_BLOCK) takes over there.
     }
 
     let response = await originalFetch(input, init);
@@ -399,7 +428,7 @@
 
       tryRelay(url, info.method, this._xhrHeaders || {}, body)
         .then((result) => {
-          if (result && result.ok) {
+          if (result && result.ok && !isRelayChallenge(result)) {
             completeXhr(
               xhr,
               {
@@ -410,6 +439,14 @@
               result,
               url
             );
+          } else if (result && isRelayChallenge(result)) {
+            // Proxy IP was CF-challenged — hand off to the normal PSE
+            // solve flow (challenge tab → user solves → direct retry).
+            interceptXhrResponse(xhr, {
+              onload: origOnLoad,
+              onerror: origOnError,
+              onreadystatechange: origOnReadyState,
+            });
           } else {
             relayFallbackDirect();
           }
