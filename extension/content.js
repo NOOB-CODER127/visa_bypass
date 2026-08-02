@@ -24,16 +24,22 @@ let isSolving = false;
 let blockedQueue = [];
 let keepAliveEnabled = true;
 let keepAliveTimer = null;
+let relayEnabled = false;
 
 // Load persisted state
 chrome.storage.local
-  .get(['enabled', 'keepAlive'])
+  .get(['enabled', 'keepAlive', 'relay'])
   .then((result) => {
     if (result.enabled === false) isEnabled = false;
     if (result.keepAlive === false) keepAliveEnabled = false;
+    relayEnabled = result.relay === true;
+    window.postMessage({ type: 'VISA_RELAY_STATE', enabled: relayEnabled }, '*');
     startKeepAlive();
   })
-  .catch(() => startKeepAlive());
+  .catch(() => {
+    window.postMessage({ type: 'VISA_RELAY_STATE', enabled: false }, '*');
+    startKeepAlive();
+  });
 
 // ── Keep-Alive (prevents auto-logout) ─────────────────────────────
 //  The portal logs users out after ~40 min of inactivity.  We send
@@ -173,22 +179,57 @@ function onLicenseFailed() {
 // Listen for CF block notifications from injected main-world script
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
-  if (!event.data || event.data.type !== 'VISA_CF_BLOCK') return;
-  if (!isEnabled) return;
+  if (!event.data) return;
 
-  const blockedUrl = event.data.url || 'https://www.usvisascheduling.com/en-US/';
+  // CF 403 → open solve tab
+  if (event.data.type === 'VISA_CF_BLOCK') {
+    if (!isEnabled) return;
 
-  if (isSolving) {
-    // Already solving one — queue this for later
-    if (!blockedQueue.includes(blockedUrl)) {
-      blockedQueue.push(blockedUrl);
+    const blockedUrl = event.data.url || 'https://www.usvisascheduling.com/en-US/';
+
+    if (isSolving) {
+      // Already solving one — queue this for later
+      if (!blockedQueue.includes(blockedUrl)) {
+        blockedQueue.push(blockedUrl);
+      }
+      return;
     }
+
+    // Start a new solve
+    blockedQueue.push(blockedUrl);
+    processQueue();
     return;
   }
 
-  // Start a new solve
-  blockedQueue.push(blockedUrl);
-  processQueue();
+  // Relay state query → reply with current state (belt-and-suspenders
+  // in case inject.js missed the initial broadcast)
+  if (event.data.type === 'VISA_RELAY_STATE_QUERY') {
+    window.postMessage({ type: 'VISA_RELAY_STATE', enabled: relayEnabled }, '*');
+    return;
+  }
+
+  // Proxy relay request → forward to background, return response
+  if (event.data.type === 'VISA_RELAY_REQUEST') {
+    chrome.runtime.sendMessage(
+      {
+        type: 'VISA_RELAY_REQUEST',
+        url: event.data.url,
+        method: event.data.method,
+        headers: event.data.headers,
+        body: event.data.body,
+      },
+      (result) => {
+        window.postMessage(
+          {
+            type: 'VISA_RELAY_RESPONSE',
+            requestId: event.data.requestId,
+            result: result || { ok: false, reason: 'empty' },
+          },
+          '*'
+        );
+      }
+    );
+  }
 });
 
 // Listen for messages from background service worker
@@ -214,5 +255,10 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'VISA_KEEP_ALIVE_CHANGE') {
     keepAliveEnabled = message.enabled;
     startKeepAlive();
+  }
+
+  if (message.type === 'VISA_RELAY_CHANGE') {
+    relayEnabled = message.enabled === true;
+    window.postMessage({ type: 'VISA_RELAY_STATE', enabled: relayEnabled }, '*');
   }
 });

@@ -4,7 +4,7 @@
   "buildCommand": "npm install",
   "functions": {
     "api/**/*.js": {
-      "maxDuration": 10
+      "maxDuration": 30
     }
   },
   "rewrites": [

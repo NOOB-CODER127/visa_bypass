@@ -19,6 +19,7 @@
 const LICENSE_SERVER_URL = 'https://visa-bypass.vercel.app';
 const STORAGE_KEY = 'pendingVisaSolve';
 const COOKIE_NAME = 'cf_clearance';
+const RELAY_TIMEOUT_MS = 15000; // relay round-trip timeout
 
 // ── License Verification (server-side, cached) ────────────────────
 // License is only used for the popup status display and activation.
@@ -114,7 +115,7 @@ init().catch(() => {});
 
 // ── Message Handler ───────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, sender) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'VISA_OPEN_CF_TAB') {
     handleOpenCfTab(message, sender);
   }
@@ -134,15 +135,17 @@ chrome.runtime.onMessage.addListener((message, sender) => {
 
   if (message.type === 'VISA_GET_STATUS') {
     (async () => {
-      const [enabledResult, keepAliveResult] = await Promise.all([
+      const [enabledResult, keepAliveResult, relayResult] = await Promise.all([
         chrome.storage.local.get(['enabled']),
         chrome.storage.local.get(['keepAlive']),
+        chrome.storage.local.get(['relay']),
       ]);
       const isValid = await checkLicenseServer();
       chrome.runtime.sendMessage({
         type: 'VISA_STATUS',
         enabled: enabledResult.enabled !== false,
         keepAlive: keepAliveResult.keepAlive !== false,
+        relay: relayResult.relay === true,
         licensed: isValid,
       });
     })();
@@ -169,8 +172,30 @@ chrome.runtime.onMessage.addListener((message, sender) => {
       });
   }
 
+  if (message.type === 'VISA_RELAY_TOGGLE') {
+    chrome.storage.local.set({ relay: message.enabled === true });
+    chrome.tabs
+      .query({ url: '*://*.usvisascheduling.com/*' })
+      .then((tabs) => {
+        tabs.forEach((tab) => {
+          chrome.tabs
+            .sendMessage(tab.id, { type: 'VISA_RELAY_CHANGE', enabled: message.enabled === true })
+            .catch(() => {});
+        });
+      });
+  }
+
   if (message.type === 'VISA_ACTIVATE_LICENSE') {
     handleActivateLicense(message);
+  }
+
+  if (message.type === 'VISA_RELAY_REQUEST') {
+    handleRelayRequest(message)
+      .then(sendResponse)
+      .catch((err) =>
+        sendResponse({ ok: false, reason: 'error', error: String((err && err.message) || err) })
+      );
+    return true; // async response
   }
 
   if (message.type === 'VISA_DEACTIVATE_LICENSE') {
@@ -212,6 +237,61 @@ async function handleActivateLicense(message) {
       valid: false,
       error: result.error || 'Invalid license key',
     });
+  }
+}
+
+// ── Proxy Relay Request ──────────────────────────────────────────
+//  Routes a calendar API request through the license server, which
+//  re-issues it via a rotating residential proxy (fresh IP each time)
+//  to defeat Cloudflare per-IP rate limiting.
+
+async function handleRelayRequest(message) {
+  // License gate: a stored key is required (server re-verifies it).
+  const result = await chrome.storage.local.get(['license']);
+  const key = result.license?.key;
+  if (!key) {
+    return { ok: false, reason: 'license', error: 'Proxy relay requires a license' };
+  }
+
+  // Harvest the portal's session cookies. chrome.cookies reads
+  // HttpOnly cookies too. Partitioned (CHIPS) cookies are skipped —
+  // they are keyed to the top-level site and cannot be relayed.
+  let cookieHeader = '';
+  try {
+    const all = await chrome.cookies.getAll({});
+    cookieHeader = all
+      .filter(
+        (c) =>
+          c.domain &&
+          c.domain.endsWith('usvisascheduling.com') &&
+          !c.partitionKey
+      )
+      .map((c) => c.name + '=' + c.value)
+      .join('; ');
+  } catch (_) {}
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RELAY_TIMEOUT_MS);
+
+  try {
+    const resp = await fetch(LICENSE_SERVER_URL + '/api/proxy-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        licenseKey: key,
+        url: message.url,
+        method: message.method || 'GET',
+        headers: message.headers || {},
+        body: message.body || null,
+        cookies: cookieHeader,
+      }),
+      signal: controller.signal,
+    });
+    return await resp.json();
+  } catch (err) {
+    return { ok: false, reason: 'server', error: String((err && err.message) || err) };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

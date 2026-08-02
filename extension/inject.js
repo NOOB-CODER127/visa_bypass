@@ -67,6 +67,179 @@
   //  triggers the CF solve tab; subsequent retries wait silently.
   // ══════════════════════════════════════════════════════════════════
 
+  // ══════════════════════════════════════════════════════════════════
+  //  PROXY RELAY — route API requests through rotating residential IPs
+  // ══════════════════════════════════════════════════════════════════
+  //  When enabled, ALL matching API requests are forwarded to the
+  //  license server, which re-issues them via a rotating residential
+  //  proxy — each request exits from a FRESH IP, defeating Cloudflare
+  //  per-IP rate limiting during rapid refreshes. Requires a license.
+  //  If the relay fails (no license / server down / timeout), requests
+  //  fall back to the normal direct flow.
+
+  let relayEnabled = false;
+
+  window.addEventListener('message', function relayStateListener(event) {
+    if (event.data && event.data.type === 'VISA_RELAY_STATE') {
+      relayEnabled = event.data.enabled === true;
+    }
+  });
+
+  // Belt-and-suspenders: request the current relay state in case we
+  // missed the initial broadcast from content.js.
+  window.postMessage({ type: 'VISA_RELAY_STATE_QUERY' }, '*');
+
+  function normalizeHeaders(h) {
+    const out = {};
+    if (!h) return out;
+    if (typeof h.forEach === 'function') {
+      h.forEach((v, k) => {
+        out[k] = v;
+      });
+    } else if (Array.isArray(h)) {
+      h.forEach((entry) => {
+        if (entry && entry.length === 2) out[entry[0]] = entry[1];
+      });
+    } else if (typeof h === 'object') {
+      Object.assign(out, h);
+    }
+    return out;
+  }
+
+  async function extractFetchInfo(input, init) {
+    let url = '';
+    let method = 'GET';
+    let headers = {};
+    let body = null;
+    if (typeof input === 'string') {
+      url = input;
+      if (init) {
+        method = init.method || 'GET';
+        headers = normalizeHeaders(init.headers);
+        if (init.body !== undefined && init.body !== null) body = init.body;
+      }
+    } else if (input instanceof Request) {
+      url = input.url;
+      method = input.method || 'GET';
+      input.headers.forEach((v, k) => {
+        headers[k] = v;
+      });
+      // Read the body from a clone so the original request stays usable.
+      try {
+        const clone = input.clone();
+        body = await clone.text();
+      } catch (_) {
+        body = null;
+      }
+    }
+    return { url, method, headers, body };
+  }
+
+  function serializeBody(body) {
+    if (body === undefined || body === null) return null;
+    if (typeof body === 'string') return body;
+    try {
+      return JSON.stringify(body);
+    } catch (_) {
+      return String(body);
+    }
+  }
+
+  function tryRelay(url, method, headers, body) {
+    return new Promise((resolve) => {
+      const requestId =
+        'relay_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+      const timer = setTimeout(() => {
+        window.removeEventListener('message', listener);
+        resolve({ ok: false, reason: 'timeout' });
+      }, 20000);
+
+      function listener(event) {
+        if (!event.data || event.data.type !== 'VISA_RELAY_RESPONSE') return;
+        if (event.data.requestId !== requestId) return;
+        window.removeEventListener('message', listener);
+        clearTimeout(timer);
+        resolve(event.data.result || { ok: false, reason: 'empty' });
+      }
+
+      window.addEventListener('message', listener);
+      window.postMessage(
+        {
+          type: 'VISA_RELAY_REQUEST',
+          requestId: requestId,
+          url: url,
+          method: method,
+          headers: headers,
+          body: serializeBody(body),
+        },
+        '*'
+      );
+    });
+  }
+
+  function completeXhr(xhr, handlers, result, url) {
+    const def = (prop, value) => {
+      try {
+        Object.defineProperty(xhr, prop, { configurable: true, value });
+      } catch (_) {}
+    };
+
+    const status = result.status || 200;
+    const statusText = result.statusText || '';
+    const bodyText = result.body || '';
+
+    def('status', status);
+    def('statusText', statusText);
+    def('responseURL', url);
+
+    const respType = xhr.responseType;
+    let responseVal = bodyText;
+    if (respType === 'json') {
+      try {
+        responseVal = JSON.parse(bodyText);
+      } catch (_) {
+        responseVal = null;
+      }
+    }
+    def('response', responseVal);
+    def('responseText', respType === '' || respType === 'text' ? bodyText : '');
+
+    const headerMap = {};
+    const headerList = [];
+    if (result.headers) {
+      for (const k in result.headers) {
+        const val = String(result.headers[k]);
+        headerMap[k.toLowerCase()] = val;
+        headerList.push([k, val]);
+      }
+    }
+    def('getResponseHeader', function (name) {
+      return name ? headerMap[String(name).toLowerCase()] || null : null;
+    });
+    def('getAllResponseHeaders', function () {
+      return headerList.map(([k, v]) => k + ': ' + v).join('\r\n');
+    });
+    def('readyState', 4);
+
+    // Fire both property handlers and registered event listeners, like
+    // a real XHR completion would.
+    if (handlers.onreadystatechange) {
+      try {
+        handlers.onreadystatechange.call(xhr);
+      } catch (_) {}
+    }
+    if (handlers.onload) {
+      try {
+        handlers.onload.call(xhr);
+      } catch (_) {}
+    }
+    try {
+      xhr.dispatchEvent(new ProgressEvent('readystatechange'));
+      xhr.dispatchEvent(new ProgressEvent('load'));
+      xhr.dispatchEvent(new ProgressEvent('loadend'));
+    } catch (_) {}
+  }
+
   const originalFetch = window.fetch.bind(window);
   const MAX_RETRIES = 3;
   const RETRY_DELAY_MS = 500;
@@ -81,6 +254,32 @@
 
     if (!matchesApi(requestUrl)) {
       return originalFetch(input, init);
+    }
+
+    // Proxy relay path: when enabled, route ALL calendar API requests
+    // through the server so each exits from a fresh residential IP.
+    if (relayEnabled) {
+      const info = await extractFetchInfo(input, init);
+      const relayed = await tryRelay(info.url, info.method, info.headers, info.body);
+      if (relayed && relayed.ok) {
+        const respHeaders = new Headers();
+        if (relayed.headers) {
+          for (const k in relayed.headers) {
+            try {
+              respHeaders.set(k, relayed.headers[k]);
+            } catch (_) {}
+          }
+        }
+        const nullBody =
+          relayed.status === 204 || relayed.status === 205 || relayed.status === 304;
+        return new Response(nullBody ? null : relayed.body || '', {
+          status: relayed.status || 200,
+          statusText: relayed.statusText || '',
+          headers: respHeaders,
+        });
+      }
+      // Relay unavailable (no license / server down / timeout) — fall
+      // through to the normal direct flow.
     }
 
     let response = await originalFetch(input, init);
@@ -177,6 +376,48 @@
 
     const xhr = this;
     xhr._xhrBody = body;
+
+    // ── Proxy relay path ───────────────────────────────────────
+    // When enabled, route ALL calendar API requests through the
+    // server instead of sending them from this IP.
+    if (relayEnabled) {
+      const origOnLoad = xhr.onload;
+      const origOnError = xhr.onerror;
+      const origOnReadyState = xhr.onreadystatechange;
+      const url = resolveUrl(info.url);
+
+      function relayFallbackDirect() {
+        // Relay failed — fall back to a real request from this IP.
+        xhr._xhrSkipIntercept = true;
+        xhr.onload = origOnLoad;
+        xhr.onerror = origOnError;
+        xhr.onreadystatechange = origOnReadyState;
+        try {
+          OrigSend.call(xhr, body);
+        } catch (_) {}
+      }
+
+      tryRelay(url, info.method, this._xhrHeaders || {}, body)
+        .then((result) => {
+          if (result && result.ok) {
+            completeXhr(
+              xhr,
+              {
+                onload: origOnLoad,
+                onerror: origOnError,
+                onreadystatechange: origOnReadyState,
+              },
+              result,
+              url
+            );
+          } else {
+            relayFallbackDirect();
+          }
+        })
+        .catch(() => relayFallbackDirect());
+
+      return;
+    }
 
     // Store original handlers set via onload/onerror/onreadystatechange
     const origOnLoad = xhr.onload;

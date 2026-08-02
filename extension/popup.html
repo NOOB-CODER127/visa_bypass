@@ -52,6 +52,14 @@
       font-weight: 600;
       color: #333;
     }
+    .relay-note {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #888;
+      line-height: 1.4;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
     /* Toggle Switch */
     .switch {
       position: relative;
@@ -249,6 +257,20 @@
     </label>
   </div>
 
+  <div class="toggle-row" style="margin-top: 12px;">
+    <div>
+      <label for="relayToggle">Proxy Relay (Rotating IPs)</label>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="relayToggle" />
+      <span class="slider"></span>
+    </label>
+  </div>
+  <div class="relay-note" id="relayNote">
+    Routes calendar requests via rotating residential IPs to avoid
+    rate limits. Requires an active license.
+  </div>
+
   <!-- License Activation -->
   <div class="license-section" id="licenseNotActive">
     <h3>🔑 Activate License</h3>
@@ -281,7 +303,7 @@
     </p>
   </div>
 
-  <div class="footer">v1.0.0 &mdash; License required</div>
+  <div class="footer">v1.1.0 &mdash; License required</div>
 
   <script src="popup.js"></script>
 </body>

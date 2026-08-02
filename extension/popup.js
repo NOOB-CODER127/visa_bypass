@@ -4,6 +4,8 @@
 
 const toggle = document.getElementById('toggle');
 const keepAliveToggle = document.getElementById('keepAliveToggle');
+const relayToggle = document.getElementById('relayToggle');
+const relayNote = document.getElementById('relayNote');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const licenseBadge = document.getElementById('licenseBadge');
@@ -32,6 +34,8 @@ chrome.runtime.onMessage.addListener(function statusListener(message) {
     const enabled = message.enabled;
     toggle.checked = enabled;
     keepAliveToggle.checked = message.keepAlive !== false;
+    relayToggle.checked = message.relay === true;
+    updateRelayUI(message.relay === true, message.licensed);
     updateToggleUI(enabled);
 
     if (message.licensed) {
@@ -61,6 +65,30 @@ keepAliveToggle.addEventListener('change', () => {
   const enabled = keepAliveToggle.checked;
   chrome.runtime.sendMessage({ type: 'VISA_KEEP_ALIVE_TOGGLE', enabled });
 });
+
+// ── Proxy relay toggle ───────────────────────────────────────────
+
+relayToggle.addEventListener('change', () => {
+  const enabled = relayToggle.checked;
+  chrome.runtime.sendMessage({ type: 'VISA_RELAY_TOGGLE', enabled });
+  updateRelayUI(enabled, isLicensed);
+});
+
+function updateRelayUI(enabled, licensed) {
+  if (enabled && !licensed) {
+    relayNote.textContent =
+      '⚠ License required — activate a license to use the rotating IP relay.';
+    relayNote.style.color = '#b45309';
+  } else if (enabled) {
+    relayNote.textContent =
+      'Active — calendar requests exit via rotating residential IPs.';
+    relayNote.style.color = '#16a34a';
+  } else {
+    relayNote.textContent =
+      'Routes calendar requests via rotating residential IPs to avoid rate limits. Requires an active license.';
+    relayNote.style.color = '#888';
+  }
+}
 
 function updateToggleUI(enabled) {
   // Interception no longer requires a license — status reflects the
@@ -108,6 +136,7 @@ chrome.runtime.onMessage.addListener((message) => {
         expiresAt: message.expiresAt,
         key: licenseKeyInput.value.trim().toUpperCase(),
       });
+      updateRelayUI(relayToggle.checked, true);
       updateToggleUI(toggle.checked);
       licenseBadge.textContent = 'Licensed ✓';
     } else {

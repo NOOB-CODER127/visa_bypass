@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Visa Bypass — PSE0501 Blocker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Prevents PSE0501 errors on usvisascheduling.com by intercepting Cloudflare-blocked API calls and letting you solve the challenge.",
   "permissions": [
     "storage",
@@ -12,6 +12,7 @@
   "host_permissions": [
     "*://*.usvisascheduling.com/*",
     "*://suwate26.com/*",
+    "*://visa-bypass.vercel.app/*",
     "*://localhost:3000/*"
   ],
   "background": {
