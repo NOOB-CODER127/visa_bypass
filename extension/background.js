@@ -305,17 +305,26 @@ async function handleOpenCfTab(message, sender) {
   // for everyone — license status is display-only in the popup.
   const blockedUrl = message.blockedUrl || 'https://www.usvisascheduling.com/en-US/';
 
-  // Open a new tab directly to the blocked API URL
-  // This forces a real CF Turnstile challenge, ensuring the cookie
-  // is fresh — no stale cf_clearance pre-check.
+  // Open the PORTAL MAIN PAGE in the solve tab — NOT the raw API URL.
+  // Navigating directly to a calendar API URL (a custom-actions route)
+  // returns {"Message":"Action method not found"} instead of a captcha,
+  // because those routes are POST-only. The main page reliably triggers
+  // the CF Turnstile challenge; after solving, the IP-bound cf_clearance
+  // lets the retried request succeed.
+  let portalUrl = 'https://www.usvisascheduling.com/en-US/';
   try {
-    const tab = await chrome.tabs.create({ url: blockedUrl, active: true });
+    portalUrl = new URL(blockedUrl).origin + '/en-US/';
+  } catch (_) {}
+
+  try {
+    const tab = await chrome.tabs.create({ url: portalUrl, active: true });
 
     await chrome.storage.session.set({
       [STORAGE_KEY]: {
         sourceTabId,
         solveTabId: tab.id,
         blockedUrl,
+        portalUrl,
         createdAt: Date.now(),
       },
     });
