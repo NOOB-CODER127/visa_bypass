@@ -552,6 +552,22 @@
   // ── XHR rate-limit retry (1015) ───────────────────────────────────
   //  429 is NOT a captcha — solving can't clear it. Wait retry_after
   //  (30s then 60s per Cloudflare guidance) and retry with a fresh XHR.
+  function adoptXhrResult(target, source) {
+    const def = (prop, value) => {
+      try {
+        Object.defineProperty(target, prop, { configurable: true, value });
+      } catch (_) {}
+    };
+    def('status', source.status);
+    def('statusText', source.statusText);
+    def('responseURL', source.responseURL);
+    def('readyState', 4);
+    def('responseText', source.responseText);
+    def('response', source.response);
+    def('getResponseHeader', source.getResponseHeader.bind(source));
+    def('getAllResponseHeaders', source.getAllResponseHeaders.bind(source));
+  }
+
   function xhrRateLimitHandler(origXhr, handlers, attempt) {
     if (attempt >= MAX_RATE_LIMIT_RETRIES) {
       // Give up — surface the 429 to the page
@@ -574,8 +590,16 @@
           xhrRateLimitHandler(retryXhr, handlers, attempt + 1);
           return;
         }
-        if (handlers.onreadystatechange) handlers.onreadystatechange.call(retryXhr);
-        if (handlers.onload) handlers.onload.call(retryXhr);
+        // Copy the successful retry's state onto the ORIGINAL xhr so BOTH
+        // `this`-style and closure-style page handlers see the real result
+        // (not the stale 429).
+        adoptXhrResult(origXhr, retryXhr);
+        if (handlers.onreadystatechange) handlers.onreadystatechange.call(origXhr);
+        if (handlers.onload) handlers.onload.call(origXhr);
+        try {
+          origXhr.dispatchEvent(new ProgressEvent('load'));
+          origXhr.dispatchEvent(new ProgressEvent('loadend'));
+        } catch (_) {}
       });
       retryXhr.onerror = handlers.onerror;
       retryXhr.send(origXhr._xhrBody);
