@@ -127,6 +127,53 @@ function reportLogout() {
   chrome.runtime.sendMessage({ type: 'VISA_LOGOUT_DETECTED' }).catch(() => {});
 }
 
+// ── Cloudflare WAF block-page recovery ─────────────────────────────
+//  Behind a rotating proxy, a stale cf_clearance (bound to a previous
+//  IP) makes Cloudflare's WAF return a hard "Sorry, you have been
+//  blocked" page instead of a challenge. We detect it here, ask the
+//  background to purge CF-owned cookies, and reload — the fresh IP then
+//  gets a clean challenge (or loads) instead of a block. Throttled so
+//  it can never loop.
+const BLOCK_PAGE_RE =
+  /sorry, you have been blocked|you have been blocked|performance & security by cloudflare/i;
+const BLOCK_RECOVERY_INTERVAL_MS = 20 * 1000;
+const MAX_BLOCK_RECOVERIES = 3;
+
+let lastBlockRecoveryAt = 0;
+let blockRecoveries = 0;
+
+function isBlockPage() {
+  try {
+    // Cheap fast-path first: the CF block page sets a matching <title>.
+    if (BLOCK_PAGE_RE.test(document.title || '')) return true;
+    // Fallback: scan body text. textContent (no reflow, no full-DOM
+    // serialization) is enough — the block text lives in the body.
+    const bodyText = (document.body ? document.body.textContent : '') || '';
+    return BLOCK_PAGE_RE.test(bodyText);
+  } catch (_) {
+    return false;
+  }
+}
+
+function checkForBlockPage() {
+  if (!isEnabled) return;
+  if (!isBlockPage()) {
+    blockRecoveries = 0; // page is healthy — reset the counter
+    return;
+  }
+  if (blockRecoveries >= MAX_BLOCK_RECOVERIES) return; // give up quietly
+  const now = Date.now();
+  if (now - lastBlockRecoveryAt < BLOCK_RECOVERY_INTERVAL_MS) return;
+  lastBlockRecoveryAt = now;
+  blockRecoveries++;
+  chrome.runtime.sendMessage({ type: 'VISA_CF_BLOCK_PAGE' }).catch(() => {});
+}
+
+// Check shortly after load and keep watching (covers SPA navigations
+// and the solve tab, which also lands on this site).
+setTimeout(checkForBlockPage, 1500);
+setInterval(checkForBlockPage, 3000);
+
 // ── Logout detection via URL changes (SPA navigation) ─────────────
 //  The portal is an SPA — watch history for navigations to login.
 let lastHref = window.location.href;

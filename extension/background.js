@@ -30,6 +30,8 @@ const RELAY_TIMEOUT_MS = 28000; // relay round-trip timeout (server may retry on
 const LICENSE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes for success
 const LICENSE_FAILURE_TTL = 30 * 1000; // 30 seconds for failures
 
+let lastBlockPageHandledAt = 0; // dedupe for VISA_CF_BLOCK_PAGE
+
 let licenseCache = {
   valid: false,
   key: null,
@@ -307,6 +309,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }).catch(() => {});
   }
 
+  if (message.type === 'VISA_CF_BLOCK_PAGE') {
+    // Cloudflare WAF served a hard block page (usually caused by a
+    // stale cf_clearance from a previous proxy IP). Purge CF-owned
+    // cookies so the reload starts clean, then reload the tab.
+    // Dedupe: the source tab and the solve tab can both report a block
+    // within the same second — one purge+reload round is enough.
+    const now = Date.now();
+    if (now - lastBlockPageHandledAt < 10 * 1000) return;
+    lastBlockPageHandledAt = now;
+    clearCfCookies().finally(() => {
+      if (sender.tab && sender.tab.id) {
+        chrome.tabs.reload(sender.tab.id).catch(() => {});
+      }
+    });
+  }
+
   if (message.type === 'VISA_ACTIVATE_LICENSE') {
     handleActivateLicense(message);
   }
@@ -431,6 +449,34 @@ async function handleRelayRequest(message) {
 function isCfOwnedCookie(name) {
   const n = String(name || '').toLowerCase();
   return n.startsWith('cf_') || n.startsWith('__cf');
+}
+
+// ── Clear Cloudflare-owned cookies (block-page recovery) ──────────
+//  cf_clearance / __cf_bm / __cfwaitingroom are bound to the IP that
+//  minted them. Behind a rotating proxy they are always stale and can
+//  trigger a hard WAF block ("Sorry, you have been blocked"). Purge
+//  them so the next request starts clean.
+async function clearCfCookies() {
+  try {
+    const all = await chrome.cookies.getAll({});
+    const targets = all.filter(
+      (c) =>
+        c.domain &&
+        c.domain.includes('usvisascheduling.com') &&
+        isCfOwnedCookie(c.name)
+    );
+    for (const c of targets) {
+      try {
+        const url = 'https://' + c.domain.replace(/^\./, '') + (c.path || '/');
+        const opts = { url, name: c.name };
+        // Partitioned (CHIPS) cookies need their top-level site to remove.
+        if (c.partitionKey) {
+          opts.partitionKey = { topLevelSite: c.partitionKey };
+        }
+        await chrome.cookies.remove(opts);
+      } catch (_) {}
+    }
+  } catch (_) {}
 }
 
 // ── Open CF Solve Tab ─────────────────────────────────────────────
