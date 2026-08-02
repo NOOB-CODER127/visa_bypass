@@ -38,7 +38,7 @@ STEP 2 — Turn on IP Rotation (1 minute)
 3. Enter these two values (your provider will give you the exact
    ones):
 
-       Host:  proxy.YOURSERVER.com        (or the IP)
+       Host:  35.223.249.27
        Port:  8787
 
 4. Click "Save".
