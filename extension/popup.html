@@ -294,10 +294,11 @@
         style="padding:6px 12px; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:#fff; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">Save</button>
     </div>
     <div style="font-size:11px; color:#888; line-height:1.4;">
-      When Chrome asks for proxy credentials, enter your WebShare
-      username with <strong>-session-XXXX</strong> (sticky IP) and
-      password. Set the session time in your WebShare dashboard to
-      control how often the IP rotates automatically.
+      <strong>Recommended:</strong> run <code>node local-bridge.js</code>
+      (in the project folder) and set host <strong>127.0.0.1</strong>,
+      port <strong>8787</strong> — no login dialog needed. Without the
+      bridge, enter your WebShare username + password once when Chrome
+      asks (only works if your network can reach the proxy).
     </div>
   </div>
 

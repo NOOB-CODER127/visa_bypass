@@ -1,0 +1,10 @@
+# Credentials — never commit
+local-bridge-config.json
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+extension-obfuscated/
+visa-bypass-obfuscated.zip
+visa-bypass-extension.zip

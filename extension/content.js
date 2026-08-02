@@ -26,6 +26,14 @@ let keepAliveEnabled = true;
 let keepAliveTimer = null;
 let relayEnabled = false;
 
+// Solve-tab cooldown: in rotating-IP proxy mode (local bridge, -rotate)
+// the IP changes between the solve tab and the retry, so solving can't
+// clear the challenge — without a cooldown this loops forever, opening
+// a new tab every few seconds. 60s suppression keeps it sane; in normal
+// direct mode solves are minutes apart so this never gets in the way.
+let lastSolveAt = 0;
+const SOLVE_COOLDOWN_MS = 60 * 1000;
+
 // Load persisted state
 chrome.storage.local
   .get(['enabled', 'keepAlive', 'relay'])
@@ -185,6 +193,14 @@ window.addEventListener('message', (event) => {
   if (event.data.type === 'VISA_CF_BLOCK') {
     if (!isEnabled) return;
 
+    const now = Date.now();
+    if (now - lastSolveAt < SOLVE_COOLDOWN_MS) {
+      // Suppress solve-tab spam (rotating-IP mode). The request will
+      // just fail and the user refreshes onto a fresh IP.
+      return;
+    }
+    lastSolveAt = now;
+
     const blockedUrl = event.data.url || 'https://www.usvisascheduling.com/en-US/';
 
     if (isSolving) {
@@ -205,6 +221,12 @@ window.addEventListener('message', (event) => {
   // in case inject.js missed the initial broadcast)
   if (event.data.type === 'VISA_RELAY_STATE_QUERY') {
     window.postMessage({ type: 'VISA_RELAY_STATE', enabled: relayEnabled }, '*');
+    return;
+  }
+
+  // Proxy IP rotation request (429 detected) → tell the local bridge
+  if (event.data.type === 'VISA_ROTATE_REQUEST') {
+    chrome.runtime.sendMessage({ type: 'VISA_ROTATE_REQUEST' }).catch(() => {});
     return;
   }
 

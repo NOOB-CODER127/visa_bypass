@@ -273,6 +273,19 @@
   const RETRY_DELAY_MS = 500;
   const MAX_RATE_LIMIT_RETRIES = 2; // 1015 waits: 30s then 60s
 
+  // Ask the local rotation bridge to switch to a fresh proxy IP when a
+  // 429 (rate limit) is seen. Throttled to once per 10s. No-op when the
+  // bridge isn't running (fetch fails silently). In -rotate mode the
+  // bridge already gives a new IP per connection, so this mainly matters
+  // for sticky-session mode.
+  let lastRotationRequest = 0;
+  function requestRotation() {
+    const now = Date.now();
+    if (now - lastRotationRequest < 10000) return;
+    lastRotationRequest = now;
+    window.postMessage({ type: 'VISA_ROTATE_REQUEST' }, '*');
+  }
+
   // Cloudflare 1015 (rate limit) is NOT a captcha — solving can't clear
   // it. Read the suggested wait from the retry-after header (the 1015
   // JSON body always specifies retry_after: 30) and back off instead.
@@ -334,8 +347,9 @@
 
     while (!response.ok && isCfMitigated(response) && retries < MAX_RETRIES) {
       if (response.status === 429) {
-        // 1015 rate limit — wait retry_after, then retry. NO captcha tab
-        // (a captcha cannot clear a rate limit).
+        // 1015 rate limit — ask for a fresh proxy IP, wait retry_after,
+        // then retry. NO captcha tab (a captcha cannot clear a rate limit).
+        requestRotation();
         await new Promise((r) => setTimeout(r, rateLimitDelayMs(response)));
       } else if (retries === 0) {
         // First block: notify content script to open challenge tab
@@ -575,6 +589,7 @@
   }
 
   function xhrRateLimitHandler(origXhr, handlers, attempt) {
+    requestRotation();
     if (attempt >= MAX_RATE_LIMIT_RETRIES) {
       // Give up — surface the 429 to the page
       if (handlers.onreadystatechange) handlers.onreadystatechange.call(origXhr);

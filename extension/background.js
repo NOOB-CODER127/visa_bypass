@@ -114,6 +114,13 @@ function notifyLogout() {
 const DEFAULT_VPN_HOST = 'p.webshare.io';
 const DEFAULT_VPN_PORT = '80';
 
+// Local rotation bridge (local-bridge.js) — Chrome talks to localhost
+// so no proxy login dialog is needed; the bridge does the WebShare auth
+// and rotates IPs. POST /rotate switches to a fresh sticky session (or
+// is a no-op in -rotate mode where every connection is already new).
+const LOCAL_BRIDGE_HOST = '127.0.0.1';
+const LOCAL_BRIDGE_PORT = 8787;
+
 function buildPacScript(host, port) {
   const h = String(host || '').trim();
   const p = String(port || '80').trim();
@@ -290,6 +297,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: reapplyOk });
     })();
     return true; // async response
+  }
+
+  if (message.type === 'VISA_ROTATE_REQUEST') {
+    // Fire-and-forget: tell the local bridge to switch to a fresh IP.
+    fetch('http://' + LOCAL_BRIDGE_HOST + ':' + LOCAL_BRIDGE_PORT + '/rotate', {
+      method: 'POST',
+    }).catch(() => {});
   }
 
   if (message.type === 'VISA_ACTIVATE_LICENSE') {
