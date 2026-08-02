@@ -11,7 +11,7 @@ RestartSec=3
 Environment=NODE_ENV=production
 Environment=PORT=3000
 # Set this to a strong value:
-Environment=ADMIN_PASSWORD=Xsi-GHy7_yKG
+Environment=ADMIN_PASSWORD=CHANGE_ME
 
 [Install]
 WantedBy=multi-user.target
