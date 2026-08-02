@@ -271,6 +271,36 @@
     rate limits. Requires an active license.
   </div>
 
+  <div class="toggle-row" style="margin-top: 12px;">
+    <div>
+      <label for="vpnToggle">IP Rotation (Software VPN)</label>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="vpnToggle" />
+      <span class="slider"></span>
+    </label>
+  </div>
+  <div class="relay-note" id="vpnNote">
+    Routes your real browser through the residential proxy — a
+    software VPN. No more manual VPN toggling.
+  </div>
+  <div class="relay-note" id="vpnConfig" style="display:none; border:none; padding-top:4px;">
+    <div style="display:flex; gap:6px; margin-bottom:6px;">
+      <input type="text" id="vpnHost" placeholder="p.webshare.io"
+        style="flex:1; padding:6px 8px; border:1px solid #d0d5e0; border-radius:6px; font-size:12px;" />
+      <input type="text" id="vpnPort" placeholder="80"
+        style="width:56px; padding:6px 8px; border:1px solid #d0d5e0; border-radius:6px; font-size:12px;" />
+      <button id="vpnSaveBtn"
+        style="padding:6px 12px; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); color:#fff; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">Save</button>
+    </div>
+    <div style="font-size:11px; color:#888; line-height:1.4;">
+      When Chrome asks for proxy credentials, enter your WebShare
+      username with <strong>-session-XXXX</strong> (sticky IP) and
+      password. Set the session time in your WebShare dashboard to
+      control how often the IP rotates automatically.
+    </div>
+  </div>
+
   <!-- License Activation -->
   <div class="license-section" id="licenseNotActive">
     <h3>🔑 Activate License</h3>

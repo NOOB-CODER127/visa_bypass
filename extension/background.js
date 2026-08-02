@@ -97,6 +97,61 @@ function notifyLogout() {
     .catch(() => {});
 }
 
+// ── Software VPN (Browser Proxy) ─────────────────────────────────
+//  Routes the REAL browser's usvisascheduling.com traffic through a
+//  rotating residential proxy (chrome.proxy + PAC) — a software VPN.
+//  A real browser has a genuine TLS fingerprint, so Cloudflare rarely
+//  challenges it (unlike the server-side relay's HTTP client, which
+//  gets challenged on every fresh IP).
+//
+//  Auth: MV3 cannot inject proxy credentials (onAuthRequired is
+//  enterprise-only, and Chrome ignores credentials inside PAC
+//  scripts — verified). The browser shows an auth dialog ONCE per
+//  session; the user enters their WebShare username (use -session-XXXX
+//  for a sticky IP) + password. IP rotation happens via the WebShare
+//  session duration setting.
+
+const DEFAULT_VPN_HOST = 'p.webshare.io';
+const DEFAULT_VPN_PORT = '80';
+
+function buildPacScript(host, port) {
+  const h = String(host || '').trim();
+  const p = String(port || '80').trim();
+  return (
+    'function FindProxyForURL(url, host) {' +
+    '  if (dnsDomainIs(host, "usvisascheduling.com")) {' +
+    (h ? '    return "PROXY ' + h + ':' + p + '";' : '    return "DIRECT";') +
+    '  }' +
+    '  return "DIRECT";' +
+    '}'
+  );
+}
+
+async function applyBrowserProxy(enable) {
+  try {
+    if (!enable) {
+      await chrome.proxy.settings.set({
+        value: { mode: 'direct' },
+        scope: 'regular',
+      });
+      return true;
+    }
+    const stored = await chrome.storage.local.get(['vpnHost', 'vpnPort']);
+    const pac = buildPacScript(
+      stored.vpnHost || DEFAULT_VPN_HOST,
+      stored.vpnPort || DEFAULT_VPN_PORT
+    );
+    await chrome.proxy.settings.set({
+      value: { mode: 'pac_script', pacScript: { data: pac } },
+      scope: 'regular',
+    });
+    return true;
+  } catch (err) {
+    console.error('Visa Bypass: applyBrowserProxy error:', err);
+    return false;
+  }
+}
+
 // ── Initialize: check stored license on startup ───────────────────
 async function init() {
   // Check for stale pending requests
@@ -108,6 +163,12 @@ async function init() {
     } catch (_) {
       await chrome.storage.session.remove(STORAGE_KEY);
     }
+  }
+
+  // Re-assert the browser proxy if the Software VPN is enabled
+  const st = await chrome.storage.local.get(['vpn']);
+  if (st.vpn === true) {
+    applyBrowserProxy(true).catch(() => {});
   }
 }
 
@@ -141,16 +202,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // storage before the await let the user's toggle changes race with
       // the delayed response, snapping toggles (e.g. Proxy Relay) back OFF.
       const isValid = await checkLicenseServer();
-      const [enabledResult, keepAliveResult, relayResult] = await Promise.all([
+      const [
+        enabledResult,
+        keepAliveResult,
+        relayResult,
+        vpnResult,
+        vpnCfgResult,
+      ] = await Promise.all([
         chrome.storage.local.get(['enabled']),
         chrome.storage.local.get(['keepAlive']),
         chrome.storage.local.get(['relay']),
+        chrome.storage.local.get(['vpn']),
+        chrome.storage.local.get(['vpnHost', 'vpnPort']),
       ]);
       chrome.runtime.sendMessage({
         type: 'VISA_STATUS',
         enabled: enabledResult.enabled !== false,
         keepAlive: keepAliveResult.keepAlive !== false,
         relay: relayResult.relay === true,
+        vpn: vpnResult.vpn === true,
+        vpnHost: vpnCfgResult.vpnHost || DEFAULT_VPN_HOST,
+        vpnPort: vpnCfgResult.vpnPort || DEFAULT_VPN_PORT,
         licensed: isValid,
       });
     })();
@@ -188,6 +260,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             .catch(() => {});
         });
       });
+  }
+
+  if (message.type === 'VISA_VPN_TOGGLE') {
+    (async () => {
+      const enabled = message.enabled === true;
+      const ok = await applyBrowserProxy(enabled);
+      if (ok) await chrome.storage.local.set({ vpn: enabled });
+      sendResponse({ ok, enabled });
+    })();
+    return true; // async response
+  }
+
+  if (message.type === 'VISA_VPN_SAVE') {
+    (async () => {
+      const host = String(message.host || '').trim();
+      const port = String(message.port || '80').trim();
+      await chrome.storage.local.set({ vpnHost: host, vpnPort: port });
+      // If the VPN is currently ON, re-apply with the new settings
+      const st = await chrome.storage.local.get(['vpn']);
+      if (st.vpn === true) await applyBrowserProxy(true);
+      sendResponse({ ok: true });
+    })();
+    return true; // async response
   }
 
   if (message.type === 'VISA_ACTIVATE_LICENSE') {

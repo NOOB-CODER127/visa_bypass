@@ -6,6 +6,12 @@ const toggle = document.getElementById('toggle');
 const keepAliveToggle = document.getElementById('keepAliveToggle');
 const relayToggle = document.getElementById('relayToggle');
 const relayNote = document.getElementById('relayNote');
+const vpnToggle = document.getElementById('vpnToggle');
+const vpnNote = document.getElementById('vpnNote');
+const vpnConfig = document.getElementById('vpnConfig');
+const vpnHost = document.getElementById('vpnHost');
+const vpnPort = document.getElementById('vpnPort');
+const vpnSaveBtn = document.getElementById('vpnSaveBtn');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const licenseBadge = document.getElementById('licenseBadge');
@@ -36,6 +42,10 @@ chrome.runtime.onMessage.addListener(function statusListener(message) {
     keepAliveToggle.checked = message.keepAlive !== false;
     relayToggle.checked = message.relay === true;
     updateRelayUI(message.relay === true, message.licensed);
+    vpnToggle.checked = message.vpn === true;
+    if (message.vpnHost) vpnHost.value = message.vpnHost;
+    if (message.vpnPort) vpnPort.value = message.vpnPort;
+    updateVpnUI(message.vpn === true);
     updateToggleUI(enabled);
 
     if (message.licensed) {
@@ -87,6 +97,51 @@ function updateRelayUI(enabled, licensed) {
     relayNote.textContent =
       'Routes calendar requests via rotating residential IPs to avoid rate limits. Requires an active license.';
     relayNote.style.color = '#888';
+  }
+}
+
+// ── Software VPN (browser proxy) toggle ──────────────────────────
+
+vpnToggle.addEventListener('change', () => {
+  const enabled = vpnToggle.checked;
+  chrome.runtime.sendMessage({ type: 'VISA_VPN_TOGGLE', enabled }, (resp) => {
+    if (resp && resp.ok) {
+      updateVpnUI(enabled);
+    } else {
+      // Roll back on failure
+      vpnToggle.checked = !enabled;
+      updateVpnUI(!enabled);
+      vpnNote.textContent = '⚠ Could not enable proxy. Check host/port.';
+      vpnNote.style.color = '#b45309';
+    }
+  });
+});
+
+vpnSaveBtn.addEventListener('click', () => {
+  chrome.runtime.sendMessage(
+    {
+      type: 'VISA_VPN_SAVE',
+      host: vpnHost.value.trim(),
+      port: vpnPort.value.trim(),
+    },
+    () => {
+      vpnNote.textContent = '✓ Proxy settings saved.';
+      vpnNote.style.color = '#16a34a';
+      setTimeout(() => updateVpnUI(vpnToggle.checked), 1500);
+    }
+  );
+});
+
+function updateVpnUI(enabled) {
+  vpnConfig.style.display = enabled ? 'block' : 'none';
+  if (enabled) {
+    vpnNote.textContent =
+      'Active — visa traffic exits via rotating residential IPs. Enter proxy credentials when Chrome asks (once).';
+    vpnNote.style.color = '#16a34a';
+  } else {
+    vpnNote.textContent =
+      'Routes your real browser through the residential proxy — a software VPN. No more manual VPN toggling.';
+    vpnNote.style.color = '#888';
   }
 }
 
