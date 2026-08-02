@@ -45,6 +45,16 @@ const net = require('net');
 const fs = require('fs');
 const path = require('path');
 
+// /auth uses global fetch (Node 18+) — fail fast with a clear message
+// instead of a confusing runtime error on the first license check.
+if (Number(process.versions.node.split('.')[0]) < 18) {
+  console.error(
+    '✗ Node 18+ is required (license checks use global fetch). You have ' +
+      process.version
+  );
+  process.exit(1);
+}
+
 // ── Config ────────────────────────────────────────────────────────
 //  Locate the config next to the executable when packaged (the exe's
 //  __dirname points inside the bundle), otherwise next to the script.
@@ -104,6 +114,23 @@ const AUTH_REQUIRED = config.authRequired === true;
 const LICENSE_SERVER = config.licenseServer || 'https://visa-bypass.vercel.app';
 const AUTH_TTL_MS = 10 * 60 * 1000;
 const authorizedIps = new Map(); // ip -> expiresAt (ms)
+const authAttempts = new Map(); // ip -> [timestamps] for /auth rate limiting
+const MAX_AUTH_ATTEMPTS = 5; // per IP per minute
+
+// Cheap /auth throttle: a stranger brute-forcing keys (or one leaked key
+// being shared) shouldn't be able to hammer the license server or
+// whitelist freely.
+function authRateLimited(ip) {
+  const now = Date.now();
+  const arr = (authAttempts.get(ip) || []).filter((t) => now - t < 60000);
+  if (arr.length >= MAX_AUTH_ATTEMPTS) {
+    authAttempts.set(ip, arr);
+    return true;
+  }
+  arr.push(now);
+  authAttempts.set(ip, arr);
+  return false;
+}
 
 function clientIp(socket) {
   return String((socket && socket.remoteAddress) || '').replace(/^::ffff:/, '');
@@ -118,11 +145,15 @@ function isAuthorized(socket) {
   return false;
 }
 
-// Drop expired entries so the map can't grow forever.
+// Drop expired entries so the maps can't grow forever.
 setInterval(() => {
   const now = Date.now();
   for (const [ip, exp] of authorizedIps) {
     if (now >= exp) authorizedIps.delete(ip);
+  }
+  for (const [ip, times] of authAttempts) {
+    authAttempts.set(ip, times.filter((t) => now - t < 60000));
+    if (authAttempts.get(ip).length === 0) authAttempts.delete(ip);
   }
 }, AUTH_TTL_MS).unref();
 
@@ -222,6 +253,12 @@ function handleRequest(req, res) {
         res.end(JSON.stringify({ ok: false, error: 'licenseKey required' }));
         return;
       }
+      const ip = clientIp(req.socket);
+      if (authRateLimited(ip)) {
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'rate limited' }));
+        return;
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 10000);
       fetch(LICENSE_SERVER + '/api/verify-license', {
@@ -234,7 +271,6 @@ function handleRequest(req, res) {
         .then((data) => {
           clearTimeout(timer);
           if (data && data.valid === true) {
-            const ip = clientIp(req.socket);
             authorizedIps.set(ip, Date.now() + AUTH_TTL_MS);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, ip: ip, ttlSec: AUTH_TTL_MS / 1000 }));

@@ -8,7 +8,8 @@
     "cookies",
     "tabs",
     "notifications",
-    "proxy"
+    "proxy",
+    "alarms"
   ],
   "host_permissions": [
     "*://*.usvisascheduling.com/*",

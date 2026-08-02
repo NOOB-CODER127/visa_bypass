@@ -164,7 +164,11 @@ async function bridgeAuth() {
   }
 }
 
-let bridgeAuthTimer = null;
+// MV3 service workers are suspended after ~30s idle and setInterval does
+// NOT fire while suspended — so the license re-auth uses chrome.alarms,
+// which wakes the SW reliably. Keep the bridge TTL (10 min) > period
+// (8 min) so a client's tunnels never expire between refreshes.
+const BRIDGE_AUTH_ALARM = 'visa-bridge-auth';
 
 function buildPacScript(host, port) {
   const h = String(host || '').trim();
@@ -222,16 +226,24 @@ async function init() {
   if (st.vpn === true) {
     applyBrowserProxy(true).catch(() => {});
     // Keep the bridge authorization fresh (license-gated VPS tunnels).
+    // chrome.alarms (not setInterval) — it fires even when the SW is
+    // suspended, so a client's tunnels never hit the 10-min TTL.
     bridgeAuth().catch(() => {});
-    if (!bridgeAuthTimer) {
-      bridgeAuthTimer = setInterval(() => bridgeAuth().catch(() => {}), 8 * 60 * 1000);
-    }
+    chrome.alarms.create(BRIDGE_AUTH_ALARM, { periodInMinutes: 8 }).catch(() => {});
   }
 }
 
 init().catch(() => {});
 
 // ── Message Handler ───────────────────────────────────────────────
+
+// ── Bridge auth refresh (chrome.alarms — fires even when the SW is
+//    suspended, unlike setInterval in MV3) ─────────────────────────
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm && alarm.name === BRIDGE_AUTH_ALARM) {
+    bridgeAuth().catch(() => {});
+  }
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'VISA_OPEN_CF_TAB') {
@@ -253,6 +265,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'VISA_GET_STATUS') {
     (async () => {
+      // Re-auth with the bridge whenever the popup opens (cheap, keeps
+      // tunnels from expiring even if alarms were somehow missed).
+      bridgeAuth().catch(() => {});
       // Verify the license FIRST (network call, can take 1-2s), then
       // read the toggle states AFTER — so the VISA_STATUS response always
       // reflects the CURRENT storage, not a stale snapshot. Reading
@@ -324,7 +339,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const enabled = message.enabled === true;
       const ok = await applyBrowserProxy(enabled);
       if (ok) await chrome.storage.local.set({ vpn: enabled });
-      if (ok && enabled) bridgeAuth().catch(() => {});
+      if (ok) {
+        if (enabled) {
+          bridgeAuth().catch(() => {});
+          chrome.alarms.create(BRIDGE_AUTH_ALARM, { periodInMinutes: 8 }).catch(() => {});
+        } else {
+          chrome.alarms.clear(BRIDGE_AUTH_ALARM).catch(() => {});
+        }
+      }
       sendResponse({ ok, enabled });
     })();
     return true; // async response
