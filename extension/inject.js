@@ -416,6 +416,12 @@
 
   OrigXHR.prototype.send = function (body) {
     const info = this._xhrInfo;
+    const xhr = this;
+    // Record the body on EVERY XHR (including skip-intercept retries) —
+    // downstream handoffs (interceptXhrResponse / xhrRateLimitHandler)
+    // read origXhr._xhrBody to re-issue the request, and a missing body
+    // would drop the calendar API's POST payload.
+    xhr._xhrBody = body;
     if (
       !info ||
       !matchesApi(info.url) ||
@@ -424,9 +430,6 @@
     ) {
       return OrigSend.call(this, body);
     }
-
-    const xhr = this;
-    xhr._xhrBody = body;
 
     // ── Proxy relay path ───────────────────────────────────────
     // When enabled, route ALL calendar API requests through the
