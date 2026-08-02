@@ -27,7 +27,7 @@ const { verifyLicense } = require('../lib/db');
 
 const ALLOWED_HOSTS = ['usvisascheduling.com'];
 const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MB response cap
-const REQUEST_TIMEOUT_MS = 12000; // upstream request timeout
+const REQUEST_TIMEOUT_MS = 8000; // per-attempt upstream timeout (3×8=24s < 30s maxDuration)
 const RATE_LIMIT_PER_MIN = 120; // per license key
 const MAX_ATTEMPTS = 3; // initial + 2 fresh-IP retries on CF challenge
 

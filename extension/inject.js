@@ -180,7 +180,7 @@
       const timer = setTimeout(() => {
         window.removeEventListener('message', listener);
         resolve({ ok: false, reason: 'timeout' });
-      }, 20000);
+      }, 32000);
 
       function listener(event) {
         if (!event.data || event.data.type !== 'VISA_RELAY_RESPONSE') return;

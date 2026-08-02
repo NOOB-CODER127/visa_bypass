@@ -19,7 +19,7 @@
 const LICENSE_SERVER_URL = 'https://visa-bypass.vercel.app';
 const STORAGE_KEY = 'pendingVisaSolve';
 const COOKIE_NAME = 'cf_clearance';
-const RELAY_TIMEOUT_MS = 15000; // relay round-trip timeout
+const RELAY_TIMEOUT_MS = 28000; // relay round-trip timeout (server may retry on fresh IPs: 3×8s)
 
 // ── License Verification (server-side, cached) ────────────────────
 // License is only used for the popup status display and activation.
